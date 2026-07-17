@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Neo Writer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- marked for markdown rendering (lightweight CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- mermaid for diagram rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Neo Writer</h1>
+    <div id="open-story-name" style="display:inline-block; margin-left:16px; font-weight:600;"></div>
+    <div id="user-info" style="position:absolute; right:16px; top:18px; font-size:0.9rem; color:#333;"></div>
+  </header>
+
+  <!-- expose local_mode and username to the client -->
+  <script>
+    window.local_mode = true;
+    window.username = 'anonymous';
+  </script>
+
+  <main>
+    <aside id="menu">
+      <div class="menu-controls">
+        <button id="btn-new">New</button>
+        <button id="btn-refresh">Refresh</button>
+      </div>
+      <ul id="story-list"></ul>
+    </aside>
+
+    <section id="editor-pane">
+      <textarea id="editor" placeholder="Start typing markdown..." spellcheck="false"></textarea>
+    </section>
+
+    <section id="render-pane">
+      <div id="preview"></div>
+    </section>
+  </main>
+
+  <footer>
+    <div id="stats">Words: 0 — Chars: 0</div>
+    <div id="current-name"></div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
