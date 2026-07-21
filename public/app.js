@@ -805,6 +805,64 @@
   btnAddTile.addEventListener('click', addTile);
   btnAddHighlight.addEventListener('click', addHighlight);
 
+  // --- Context menu ---
+
+  const contextMenu = $('context-menu');
+
+  function showContextMenu(x, y) {
+    contextMenu.style.left = x + 'px';
+    contextMenu.style.top = y + 'px';
+    contextMenu.style.display = 'block';
+  }
+
+  function hideContextMenu() {
+    contextMenu.style.display = 'none';
+  }
+
+  editor.addEventListener('contextmenu', (ev) => {
+    if (editor.disabled) return; // don't show if no file open
+    ev.preventDefault();
+    showContextMenu(ev.clientX, ev.clientY);
+  });
+
+  document.addEventListener('click', (ev) => {
+    if (!contextMenu.contains(ev.target)) {
+      hideContextMenu();
+    }
+  });
+
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') hideContextMenu();
+  });
+
+  contextMenu.addEventListener('click', (ev) => {
+    const action = ev.target.dataset.action;
+    if (!action) return;
+    hideContextMenu();
+
+    if (action === 'insert-table') {
+      insertTable();
+    }
+  });
+
+  function insertTable() {
+    const table = '\n| Col 1 | Col 2 | Col 3 |\n|-------|-------|-------|\n|       |       |       |\n|       |       |       |\n';
+    // Insert at the end of selection (selectionEnd), without deleting selected text
+    const pos = editor.selectionEnd;
+    const before = editor.value.substring(0, pos);
+    const after = editor.value.substring(pos);
+    editor.value = before + table + after;
+
+    // Place cursor after the inserted table
+    const newPos = pos + table.length;
+    editor.selectionStart = newPos;
+    editor.selectionEnd = newPos;
+
+    // Trigger update
+    editor.dispatchEvent(new Event('input'));
+    editor.focus();
+  }
+
   // --- Initial load ---
   showStoryList();
   loadList();
