@@ -43,15 +43,16 @@ main{
   overflow:hidden;
 }
 
-/* Menu */
+/* Menu / Sidebar */
 #menu{
   width:var(--menu-width);
   background:#fff;
-  border:1px solid #e6ee9;
+  border:1px solid #e6e6e9;
   border-radius:6px;
   padding:8px;
   display:flex;
   flex-direction:column;
+  overflow:hidden;
 }
 .menu-controls{
   display:flex;
@@ -60,7 +61,7 @@ main{
 }
 .menu-controls button{
   flex:1;
- padding:6px 8px;
+  padding:6px 8px;
   border:1px solid #ddd;
   background:#fafafa;
   cursor:pointer;
@@ -83,13 +84,128 @@ main{
 }
 .story-item:hover{background:#fbfcff}
 .story-name{flex:1; margin-right:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.btn-rename{
+.btn-rename, .btn-delete{
   font-size:12px;
   padding:4px 6px;
   border-radius:4px;
   border:1px solid #e0e0e3;
   background:#fff;
   cursor:pointer;
+}
+.btn-delete{color:#c0392b;}
+
+/* Binder */
+#binder{
+  display:flex;
+  flex-direction:column;
+  flex:1;
+  overflow:hidden;
+}
+.binder-header{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:10px;
+  padding-bottom:8px;
+  border-bottom:1px solid #e6e6e9;
+}
+.btn-back{
+  font-size:12px;
+  padding:4px 8px;
+  border:1px solid #ddd;
+  background:#fafafa;
+  cursor:pointer;
+  border-radius:4px;
+}
+.btn-back:hover{background:#eee;}
+.binder-story-name{
+  font-weight:600;
+  font-size:14px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.binder-section{
+  margin-bottom:12px;
+}
+.binder-section-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:4px;
+}
+.binder-section-title{
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  color:#888;
+  letter-spacing:0.5px;
+}
+.btn-add-tile{
+  font-size:14px;
+  width:22px;
+  height:22px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #ddd;
+  background:#fafafa;
+  cursor:pointer;
+  border-radius:4px;
+  line-height:1;
+}
+.btn-add-tile:hover{background:#eee;}
+
+.binder-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  overflow:auto;
+  flex:1;
+}
+.tile-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:6px 8px;
+  border-radius:4px;
+  cursor:grab;
+  margin-bottom:2px;
+  transition: background 0.15s, opacity 0.15s, border-color 0.15s;
+  border:2px solid transparent;
+}
+.tile-item:hover{background:#f0f4ff;}
+.tile-item.active{background:#e3ecff; font-weight:500;}
+.tile-item.dragging{opacity:0.4; background:#f8f8fa;}
+.tile-item.drag-over{border-color:var(--accent); background:#f0f4ff;}
+.tile-name{
+  flex:1;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:13px;
+}
+.tile-controls{
+  display:inline-flex;
+  gap:4px;
+  align-items:center;
+}
+.btn-tile-rename, .btn-tile-delete{
+  font-size:10px;
+  padding:2px 5px;
+  border-radius:3px;
+  border:1px solid #e0e0e3;
+  background:#fff;
+  cursor:pointer;
+}
+.btn-tile-delete{color:#c0392b;}
+
+.binder-placeholder{
+  font-size:12px;
+  color:#aaa;
+  padding:6px 8px;
+  font-style:italic;
 }
 
 /* Editor and preview panes */

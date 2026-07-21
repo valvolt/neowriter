@@ -1,15 +1,22 @@
-// Neo Writer - client app (clean, stable implementation)
+// Neo Writer - client app
 //
 // Responsibilities:
 // - Render markdown with marked -> HTML
 // - Post-process text nodes to replace arrow sequences (but not inside code/pre)
 // - Render mermaid diagrams from fenced ```mermaid blocks
 // - Sync editor -> preview scrolling and autosave
+// - Binder UI: stories contain tiles and highlights sections
 (() => {
   const api = (path, opts = {}) => fetch(path, opts).then(r => r.json());
   const $ = id => document.getElementById(id);
 
+  const sidebarEl = $('sidebar');
   const storyListEl = $('story-list');
+  const binderEl = $('binder');
+  const binderStoryName = $('binder-story-name');
+  const binderTilesList = $('binder-tiles-list');
+  const btnBack = $('btn-back');
+  const btnAddTile = $('btn-add-tile');
   const editor = $('editor');
   const preview = $('preview');
   const stats = $('stats');
@@ -18,31 +25,33 @@
   const currentName = $('current-name');
   const openStoryEl = $('open-story-name');
   const userInfoEl = $('user-info');
-  // Populate the header user info exposed by index.html
+
+  // Populate the header user info
   if (typeof window !== 'undefined' && userInfoEl) {
     const uname = window.username || 'anonymous';
     const lm = window.local_mode ? 'local mode' : 'hosted mode';
     userInfoEl.textContent = `${uname} (${lm})`;
   }
 
-  // Initial editor state: disabled until user opens/creates a story.
+  // Initial editor state: disabled until user opens a tile.
   if (editor) {
     editor.disabled = true;
     editor.placeholder = 'create or open a story';
   }
   if (openStoryEl) openStoryEl.textContent = '';
 
-  let currentId = null;
+  let currentStoryId = null;
+  let currentStoryName = null;
+  let currentTileFilename = null;
 
-  // Utilities
+  // --- Utilities ---
+
   function updateStats(text) {
     const chars = text.length;
     const words = text.trim().length ? text.trim().split(/\s+/).length : 0;
     stats.textContent = `Words: ${words} — Chars: ${chars}`;
   }
 
-  // Attempt to initialize mermaid if it's available on the page.
-  // We use startOnLoad: false so we render programmatically.
   function initMermaidIfPresent() {
     if (typeof mermaid === 'undefined') return;
     try {
@@ -53,89 +62,60 @@
   }
   initMermaidIfPresent();
 
-  // Decode HTML entities safely (used to decode > etc. inside code blocks if needed)
   function decodeHtmlEntities(html) {
     const tmp = document.createElement('textarea');
     tmp.innerHTML = html;
     return tmp.value;
   }
 
-  // Replace arrow-like sequences in text nodes within `container`, but skip nodes that
-  // are inside <code> or <pre> elements.
   function replaceArrowsInContainer(container) {
     if (!container) return;
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
     let node;
     while ((node = walker.nextNode())) {
-      // skip replacements inside code or pre elements
       if (!node.parentElement) continue;
       const skip = node.parentElement.closest && node.parentElement.closest('code, pre');
       if (skip) continue;
-
       node.nodeValue = node.nodeValue
-        .replace(/<-->|<-->/g, '↔')
-        .replace(/-->|-->/g, '→')
-        .replace(/<--|<--/g, '←');
+        .replace(/<-->|<-->/g, '\u2194')
+        .replace(/-->|-->/g, '\u2192')
+        .replace(/<--|<--/g, '\u2190');
     }
   }
 
-  // Render mermaid diagrams inside `container`.
-  // Looks for fenced code blocks produced by marked: <pre><code class="language-mermaid">...</code></pre>
-  // It replaces the <pre> with a div.mermaid containing the raw diagram text and invokes mermaid.
   function renderMermaidDiagrams(container) {
     if (!container || typeof mermaid === 'undefined') return;
-
-    // selector: code blocks labeled as language-mermaid (common output of marked)
     const codeBlocks = container.querySelectorAll('pre code.language-mermaid, code.language-mermaid');
     if (!codeBlocks || codeBlocks.length === 0) return;
 
-    // Replace each code block's <pre> with a div.mermaid containing the diagram text.
     codeBlocks.forEach((code) => {
       const pre = code.closest('pre') || code.parentElement;
       if (!pre || !pre.parentNode) return;
-
-      // Prefer textContent (often already unescaped), otherwise decode innerHTML
       let diagramText = (code.textContent || '').trim();
       if (!diagramText) diagramText = decodeHtmlEntities(code.innerHTML || '').trim();
       if (!diagramText) return;
 
       const mermaidDiv = document.createElement('div');
       mermaidDiv.className = 'mermaid';
-      // Use textContent so the diagram text isn't interpreted as HTML.
       mermaidDiv.textContent = diagramText;
-
       pre.parentNode.replaceChild(mermaidDiv, pre);
     });
 
-    // Now invoke mermaid on the newly inserted elements.
     try {
-      // Preferred API: mermaid.init (initializes elements with class 'mermaid')
       if (typeof mermaid.init === 'function') {
-        // Pass NodeList of new elements under container
         const nodes = container.querySelectorAll('.mermaid');
-        // mermaid.init may accept a selector or NodeList depending on version; passing NodeList works in common builds
-        try {
-          mermaid.init && mermaid.init(undefined, nodes);
-        } catch (e) {
-          // fallthrough to mermaid.mermaidAPI if init fails
-          console.warn('mermaid.init failed, falling back to mermaid.mermaidAPI if available', e);
+        try { mermaid.init(undefined, nodes); } catch (e) {
+          console.warn('mermaid.init failed', e);
         }
       }
-
-      // If mermaid.init didn't render (or isn't available), try mermaid.mermaidAPI.render for each element
       if (mermaid.mermaidAPI && typeof mermaid.mermaidAPI.render === 'function') {
         container.querySelectorAll('.mermaid').forEach((div) => {
           const txt = div.textContent || '';
           if (!txt.trim()) return;
           const id = 'mermaid-' + Math.random().toString(36).slice(2, 9);
           try {
-            // mermaidAPI.render(name, txt, cb, element)
-            mermaid.mermaidAPI.render(id, txt, (svgCode) => {
-              div.innerHTML = svgCode;
-            }, div);
-          } catch (e) {
-            console.error('mermaid.mermaidAPI.render failed', e);
-          }
+            mermaid.mermaidAPI.render(id, txt, (svgCode) => { div.innerHTML = svgCode; }, div);
+          } catch (e) { console.error('mermaid render failed', e); }
         });
       }
     } catch (e) {
@@ -143,30 +123,17 @@
     }
   }
 
-  // Main render pipeline: markdown -> html (marked), post-process, mermaid render, insert into preview, sync scroll.
   function renderMarkdown(text, forceScrollBottom = false) {
     const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(text || '') : (text || '');
-
     const container = document.createElement('div');
     container.innerHTML = html;
-
-    // Arrow replacementsskip code/pre)
     replaceArrowsInContainer(container);
-
-    // Insert processed HTML to preview
     preview.innerHTML = container.innerHTML;
 
-    // Mermaid rendering: replace code blocks with SVGs where applicable
-    try {
-      renderMermaidDiagrams(preview);
-    } catch (e) {
-      // mermaid may not be available or may throw; keep the raw output in that case
-      console.error('renderMermaidDiagrams error', e);
-    }
+    try { renderMermaidDiagrams(preview); } catch (e) { console.error('renderMermaidDiagrams error', e); }
 
-    // Scroll sync: if forced or editor at bottom, scroll preview to bottom; otherwise proportional sync
     try {
- if (forceScrollBottom) {
+      if (forceScrollBottom) {
         preview.scrollTop = preview.scrollHeight;
       } else {
         const editorAtBottom = (editor.scrollTop + editor.clientHeight) >= (editor.scrollHeight - 20);
@@ -180,12 +147,9 @@
           preview.scrollTop = ratio * previewHeight;
         }
       }
-    } catch (e) {
-      // ignore measurement errors
-    }
+    } catch (e) {}
   }
 
-  // Editor -> preview proportional scroll sync helper (used on 'scroll' events)
   function syncScrollFromEditor() {
     try {
       const editorScroll = editor.scrollTop;
@@ -193,33 +157,58 @@
       const previewHeight = Math.max(1, preview.scrollHeight - preview.clientHeight);
       const ratio = editorScroll / editorHeight;
       preview.scrollTop = ratio * previewHeight;
-    } catch (e) {
-      // ignore measurement errors
-    }
+    } catch (e) {}
   }
 
-  // Story list / load / save functions (unchanged behavior)
+  // --- View switching: story list vs binder ---
+
+  function showStoryList() {
+    storyListEl.style.display = '';
+    document.querySelector('.menu-controls').style.display = '';
+    binderEl.style.display = 'none';
+    currentStoryId = null;
+    currentStoryName = null;
+    currentTileFilename = null;
+    if (editor) {
+      editor.value = '';
+      editor.disabled = true;
+      editor.placeholder = 'create or open a story';
+    }
+    if (openStoryEl) openStoryEl.textContent = '';
+    if (currentName) currentName.textContent = '';
+    updateStats('');
+    if (preview) preview.innerHTML = '';
+  }
+
+  function showBinder(storyId, storyName) {
+    currentStoryId = storyId;
+    currentStoryName = storyName;
+    storyListEl.style.display = 'none';
+    document.querySelector('.menu-controls').style.display = 'none';
+    binderEl.style.display = '';
+    binderStoryName.textContent = storyName;
+    loadTilesList();
+  }
+
+  // --- Story list ---
+
   function buildStoryItem(item) {
     const li = document.createElement('li');
     li.className = 'story-item';
     li.dataset.id = item.id;
-    li.dataset.author = item.author || (window && window.username) || 'anonymous';
-    li.style.cursor = 'pointer';
-    li.style.display = 'flex';
-    li.style.justifyContent = 'space-between';
-    li.style.alignItems = 'center';
 
     const left = document.createElement('div');
     left.style.display = 'inline-flex';
     left.style.alignItems = 'center';
     left.style.gap = '8px';
+    left.style.flex = '1';
+    left.style.overflow = 'hidden';
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'story-name';
     nameSpan.textContent = item.name || 'Untitled';
     nameSpan.style.cursor = 'pointer';
     left.appendChild(nameSpan);
-
     li.appendChild(left);
 
     const controls = document.createElement('div');
@@ -240,15 +229,9 @@
 
     li.appendChild(controls);
 
-    // Click the whole left area to open the story in the editor.
-    // If the rename/delete button (or a child) was clicked, do not open.
-    left.addEventListener('click', (ev) => {
-      if (ev && ev.target && ev.target.closest && (ev.target.closest('.btn-rename') || ev.target.closest('.btn-delete'))) return;
-      loadStory(item.id);
-    });
-
-    // Allow clicking the name to open explicitly as well.
-    nameSpan.addEventListener('click', () => loadStory(item.id));
+    // Click name to open binder
+    left.addEventListener('click', () => showBinder(item.id, item.name));
+    nameSpan.addEventListener('click', (ev) => { ev.stopPropagation(); showBinder(item.id, item.name); });
 
     renameBtn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
@@ -261,9 +244,8 @@
           body: JSON.stringify({ name: newName })
         });
         await loadList();
-        if (currentId === item.id) currentName.textContent = newName;
       } catch (e) {
- console.error('rename failed', e);
+        console.error('rename failed', e);
         alert('Rename failed');
       }
     });
@@ -275,18 +257,8 @@
       try {
         const resp = await fetch(`/api/story/${item.id}`, { method: 'DELETE' });
         if (!resp.ok) throw new Error('delete failed');
-        // remove from UI and reload list
-        if (currentId === item.id) {
-          currentId = null;
-          if (editor) {
-            editor.value = '';
-            editor.disabled = true;
-            editor.placeholder = 'create or open a story';
-          }
-          currentName.textContent = '';
-          if (openStoryEl) openStoryEl.textContent = '';
-          updateStats('');
-          if (preview) preview.innerHTML = '';
+        if (currentStoryId === item.id) {
+          showStoryList();
         }
         await loadList();
       } catch (e) {
@@ -312,47 +284,232 @@
   }
 
   async function createStory() {
-    const name = prompt('Story name', 'Untitled') || 'Untitled';
+    const name = prompt('Story name', 'Untitled');
+    if (!name) return;
     try {
       const res = await api('/api/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
       });
- await loadList();
-      if (res && res.id) loadStory(res.id);
+      await loadList();
+      if (res && res.id) {
+        showBinder(res.id, res.name);
+        // Open the first tile in the editor
+        if (res.tile && res.tile.filename) {
+          loadTile(res.tile.filename);
+        }
+      }
     } catch (e) {
       console.error('create failed', e);
       alert('Create failed');
     }
   }
 
-  async function loadStory(id) {
+  // --- Binder: tiles list ---
+
+  async function loadTilesList() {
+    binderTilesList.innerHTML = '';
+    if (!currentStoryId) return;
     try {
-      const res = await api(`/api/story/${id}`);
-      currentId = id;
-      // enable editor and populate
+      const tiles = await api(`/api/story/${currentStoryId}/tiles`);
+      (Array.isArray(tiles) ? tiles : []).forEach(tile => {
+        binderTilesList.appendChild(buildTileItem(tile));
+      });
+    } catch (e) {
+      console.error('failed to load tiles', e);
+      binderTilesList.innerHTML = '<li class="error">Failed to load tiles</li>';
+    }
+  }
+
+  function buildTileItem(tile) {
+    const li = document.createElement('li');
+    li.className = 'tile-item';
+    li.dataset.filename = tile.filename;
+    if (tile.filename === currentTileFilename) {
+      li.classList.add('active');
+    }
+
+    // Drag and drop
+    li.draggable = true;
+    li.addEventListener('dragstart', (ev) => {
+      ev.dataTransfer.effectAllowed = 'move';
+      ev.dataTransfer.setData('text/plain', tile.filename);
+      li.classList.add('dragging');
+    });
+    li.addEventListener('dragend', () => {
+      li.classList.remove('dragging');
+      // Remove all drop indicators
+      binderTilesList.querySelectorAll('.tile-item').forEach(el => el.classList.remove('drag-over'));
+    });
+    li.addEventListener('dragover', (ev) => {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      li.classList.add('drag-over');
+    });
+    li.addEventListener('dragleave', () => {
+      li.classList.remove('drag-over');
+    });
+    li.addEventListener('drop', async (ev) => {
+      ev.preventDefault();
+      li.classList.remove('drag-over');
+      const draggedFilename = ev.dataTransfer.getData('text/plain');
+      if (!draggedFilename || draggedFilename === tile.filename) return;
+
+      // Compute new order from current DOM
+      const items = Array.from(binderTilesList.querySelectorAll('.tile-item'));
+      const order = items.map(el => el.dataset.filename);
+      // Remove dragged item from its current position
+      const fromIdx = order.indexOf(draggedFilename);
+      if (fromIdx === -1) return;
+      order.splice(fromIdx, 1);
+      // Insert before the drop target
+      const toIdx = order.indexOf(tile.filename);
+      order.splice(toIdx, 0, draggedFilename);
+
+      // Save new order to server
+      try {
+        await api(`/api/story/${currentStoryId}/tiles/reorder`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order })
+        });
+        await loadTilesList();
+      } catch (e) {
+        console.error('reorder failed', e);
+      }
+    });
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'tile-name';
+    nameSpan.textContent = tile.name;
+    nameSpan.title = tile.filename;
+    nameSpan.style.cursor = 'pointer';
+    li.appendChild(nameSpan);
+
+    const controls = document.createElement('div');
+    controls.className = 'tile-controls';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'btn-tile-rename';
+    renameBtn.textContent = 'Ren';
+    renameBtn.title = 'Rename tile';
+    controls.appendChild(renameBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-tile-delete';
+    deleteBtn.textContent = 'Del';
+    deleteBtn.title = 'Delete tile';
+    controls.appendChild(deleteBtn);
+
+    li.appendChild(controls);
+
+    // Click to open tile
+    nameSpan.addEventListener('click', () => loadTile(tile.filename));
+
+    renameBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const newName = prompt('New tile name', tile.name);
+      if (!newName) return;
+      try {
+        const res = await api(`/api/story/${currentStoryId}/tiles/${tile.filename}/rename`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName })
+        });
+        // If the currently open tile was renamed, update the reference
+        if (currentTileFilename === tile.filename && res.filename) {
+          currentTileFilename = res.filename;
+          updateBreadcrumb();
+        }
+        await loadTilesList();
+      } catch (e) {
+        console.error('rename tile failed', e);
+        alert('Rename tile failed');
+      }
+    });
+
+    deleteBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const ok = confirm(`Delete tile "${tile.name}"? This cannot be undone.`);
+      if (!ok) return;
+      try {
+        const resp = await fetch(`/api/story/${currentStoryId}/tiles/${tile.filename}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error('delete tile failed');
+        // If the deleted tile was open, clear editor
+        if (currentTileFilename === tile.filename) {
+          currentTileFilename = null;
+          editor.value = '';
+          editor.disabled = true;
+          editor.placeholder = 'select a tile to edit';
+          updateStats('');
+          preview.innerHTML = '';
+          updateBreadcrumb();
+        }
+        await loadTilesList();
+      } catch (e) {
+        console.error('delete tile failed', e);
+        alert('Delete tile failed');
+      }
+    });
+
+    return li;
+  }
+
+  async function loadTile(filename) {
+    if (!currentStoryId) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/tiles/${filename}`);
+      currentTileFilename = filename;
       if (editor) {
         editor.disabled = false;
         editor.value = res.content || '';
         editor.placeholder = 'Start typing markdown...';
       }
-      currentName.textContent = res.name || 'Untitled';
-      if (openStoryEl) openStoryEl.textContent = res.name || 'Untitled';
       updateStats(editor.value);
       renderMarkdown(editor.value);
-      // focus editor after a short delay to ensure it's enabled
+      updateBreadcrumb();
+      // Highlight active tile in list
+      loadTilesList();
       try { editor.focus(); } catch (e) {}
     } catch (e) {
-      console.error('load story failed', e);
-      alert('Failed to load story');
+      console.error('load tile failed', e);
+      alert('Failed to load tile');
     }
   }
 
-  async function saveCurrent() {
-    if (!currentId) return;
+  async function addTile() {
+    if (!currentStoryId) return;
     try {
-      await fetch(`/api/save/${currentId}`, {
+      const res = await api(`/api/story/${currentStoryId}/tiles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      await loadTilesList();
+      if (res && res.filename) {
+        loadTile(res.filename);
+      }
+    } catch (e) {
+      console.error('add tile failed', e);
+      alert('Add tile failed');
+    }
+  }
+
+  function updateBreadcrumb() {
+    const storyLabel = currentStoryName || '';
+    const tileLabel = currentTileFilename ? currentTileFilename.replace(/\.md$/, '') : '';
+    const breadcrumb = tileLabel ? `${storyLabel} › ${tileLabel}` : storyLabel;
+    if (openStoryEl) openStoryEl.textContent = breadcrumb;
+    if (currentName) currentName.textContent = breadcrumb;
+  }
+
+  // --- Autosave ---
+
+  async function saveCurrent() {
+    if (!currentStoryId || !currentTileFilename) return;
+    try {
+      await fetch(`/api/story/${currentStoryId}/tiles/${currentTileFilename}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: editor.value })
@@ -362,31 +519,31 @@
     }
   }
 
-  // Autosave on every keystroke (persist with each keystroke)
-  editor.addEventListener('input', (ev) => {
+  // --- Event listeners ---
+
+  editor.addEventListener('input', () => {
     const text = editor.value;
     updateStats(text);
-
-    // Detect whether the caret is at the end of the document (no selection)
     const caretAtEnd = (editor.selectionStart === editor.selectionEnd)
       && (editor.selectionStart >= editor.value.length - 1);
-
     renderMarkdown(text, caretAtEnd);
-
-    // save immediately (no debounce)
     saveCurrent();
   });
 
-  // Sync scrolling editor -> preview
   editor.addEventListener('scroll', syncScrollFromEditor);
 
-  // Buttons
   btnNew.addEventListener('click', createStory);
   btnRefresh.addEventListener('click', loadList);
+  btnBack.addEventListener('click', () => {
+    showStoryList();
+    loadList();
+  });
+  btnAddTile.addEventListener('click', addTile);
 
-  // Initial load
+  // --- Initial load ---
+  showStoryList();
   loadList();
 
   // Expose for debugging
-  window._neo = { loadList, loadStory, saveCurrent, renderMarkdown };
+  window._neo = { loadList, loadTile, saveCurrent, renderMarkdown, showBinder, showStoryList };
 })();

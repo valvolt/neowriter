@@ -25,11 +25,35 @@
 
   <main>
     <aside id="menu">
+      <!-- Story list view -->
       <div class="menu-controls">
         <button id="btn-new">New</button>
         <button id="btn-refresh">Refresh</button>
       </div>
       <ul id="story-list"></ul>
+
+      <!-- Binder view (hidden by default) -->
+      <div id="binder" style="display:none;">
+        <div class="binder-header">
+          <button id="btn-back" class="btn-back" title="Back to stories">← Back</button>
+          <span id="binder-story-name" class="binder-story-name"></span>
+        </div>
+        <div class="binder-section">
+          <div class="binder-section-header">
+            <span class="binder-section-title">Tiles</span>
+            <button id="btn-add-tile" class="btn-add-tile" title="Add tile">+</button>
+          </div>
+          <ul id="binder-tiles-list" class="binder-list"></ul>
+        </div>
+        <div class="binder-section">
+          <div class="binder-section-header">
+            <span class="binder-section-title">Highlights</span>
+          </div>
+          <ul class="binder-list binder-highlights-list">
+            <li class="binder-placeholder">No highlights yet</li>
+          </ul>
+        </div>
+      </div>
     </aside>
 
     <section id="editor-pane">

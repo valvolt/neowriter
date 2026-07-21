@@ -7,9 +7,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Local/hosted mode toggle.
-// When true the server runs in single-user "local" mode and uses a default
-// user folder under DATA_DIR. When you implement authentication later,
-// set this to false and to per-user paths.
 const LOCAL_MODE = true;
 const DEFAULT_USER = 'anonymous';
 
@@ -21,83 +18,30 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 app.use(express.json());
 app.use(express.static(PUBLIC_DIR));
 
-/*
- Ensure data directory, per-user folder (for LOCAL_MODE), metadata file exist.
- Also migrate existing top-level story files into the default user folder and
- ensure all metadata entries include an 'author' property (default DEFAULT_USER).
-*/
-async function ensureData() {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-  } catch (e) {
-    console.error('Failed to create data dir', e);
-    throw e;
-  }
+// Sanitize a user-provided name into a safe filename (without extension).
+// Lowercase, replace spaces/underscores with hyphens, strip non-alphanumeric (except hyphens), collapse multiple hyphens, trim hyphens.
+function sanitizeFilename(name) {
+  let s = String(name).trim().toLowerCase();
+  s = s.replace(/[\s_]+/g, '-');
+  s = s.replace(/[^a-z0-9\-]/g, '');
+  s = s.replace(/-{2,}/g, '-');
+  s = s.replace(/^-+|-+$/g, '');
+  return s || 'untitled';
+}
 
-  // Ensure default user folder when running in local mode
+// Ensure data directory and metadata file exist.
+async function ensureData() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+
   if (LOCAL_MODE) {
     const userDir = path.join(DATA_DIR, DEFAULT_USER);
-    try {
-      await fs.mkdir(userDir, { recursive: true });
-    } catch (e) {
-      console.error('Failed to create user data dir', e);
-      throw e;
-    }
+    await fs.mkdir(userDir, { recursive: true });
   }
 
-  // Ensure metadata file exists
   try {
     await fs.access(META_FILE);
   } catch (e) {
-    // create empty metadata file
     await fs.writeFile(META_FILE, JSON.stringify([], null, 2), 'utf8');
-  }
-
-  // Migrate existing .md files at DATA_DIR root into the default user folder and
-  // ensure metadata entries have an 'author' field.
-  try {
-    const meta = await readMeta();
-    let updated = false;
-
-    // Ensure every metadata entry has an author (default to DEFAULT_USER when local)
-    for (const item of meta) {
-      if (!item.author) {
-        item.author = DEFAULT_USER;
-        updated = true;
-      }
-    }
-
-    // Move any top-level .md files into the user folder if running local mode
-    if (LOCAL_MODE) {
-      const userDir = path.join(DATA_DIR, DEFAULT_USER);
- const entries = await fs.readdir(DATA_DIR);
-      for (const name of entries) {
-        if (name.endsWith('.md')) {
-          const src = path.join(DATA_DIR, name);
-          const dest = path.join(userDir, name);
-          try {
-            // Only move if destination does not already exist
-            await fs.stat(dest).catch(() => null);
-            const destExists = await fs.stat(dest).then(() => true).catch(() => false);
-            if (!destExists) {
-              await fs.rename(src, dest);
-            } else {
-              // If dest exists, remove the source to avoid duplicates
-              await fs.unlink(src).catch(() => null);
-            }
-          } catch (e) {
-            // ignore single-file migration errors but log
-            console.warn(`Failed migrating ${src} -> ${dest}:`, e);
-          }
-        }
-      }
-    }
-
-    if (updated) {
-      await writeMeta(meta);
-    }
-  } catch (e) {
-    console.warn('Migration/metadata normalization step failed', e);
   }
 }
 
@@ -110,12 +54,10 @@ async function writeMeta(meta) {
   await fs.writeFile(META_FILE, JSON.stringify(meta, null, 2), 'utf8');
 }
 
-async function storyPath(id) {
-  // Store per-user files when in LOCAL_MODE (under DATA_DIR/<username>/).
-  // When authentication is added later this function can be extended to
-  // resolve a user's folder from req.user or similar.
+// Get the base directory for a story
+function storyDir(id) {
   const userDir = LOCAL_MODE ? path.join(DATA_DIR, DEFAULT_USER) : DATA_DIR;
-  return path.join(userDir, `${id}.md`);
+  return path.join(userDir, id);
 }
 
 // List stories
@@ -131,18 +73,28 @@ app.get('/api/list', async (req, res) => {
 
 // Create story
 app.post('/api/create', async (req, res) => {
-  const name = (req && req.body.name) ? String(req.body.name) : 'Untitled';
+  const name = (req.body && req.body.name) ? String(req.body.name) : 'Untitled';
   try {
     const id = uuidv4();
     const meta = await readMeta();
-    // Record author metadata. In local mode we assign DEFAULT_USER. When auth is implemented
-    // replace this with the authenticated username.
     const author = LOCAL_MODE ? DEFAULT_USER : ((req.user && req.user.username) || DEFAULT_USER);
     meta.push({ id, name, author });
     await writeMeta(meta);
-    const file = await storyPath(id);
-    await fs.writeFile(file, '', 'utf8');
-    res.json({ id, name, author });
+
+    const dir = storyDir(id);
+    const tilesDir = path.join(dir, 'tiles');
+    const highlightsDir = path.join(dir, 'highlights');
+    await fs.mkdir(tilesDir, { recursive: true });
+    await fs.mkdir(highlightsDir, { recursive: true });
+
+    // Create the first tile auto-named chapter-1
+    const tileFilename = 'chapter-1.md';
+    await fs.writeFile(path.join(tilesDir, tileFilename), '', 'utf8');
+
+    // Initialize tile order
+    await fs.writeFile(path.join(tilesDir, '_order.json'), JSON.stringify([tileFilename], null, 2), 'utf8');
+
+    res.json({ id, name, author, tile: { filename: tileFilename, name: 'chapter-1' } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed to create story' });
@@ -168,69 +120,297 @@ app.post('/api/rename/:id', async (req, res) => {
   }
 });
 
-// Get story content and metadata
+// Get story metadata
 app.get('/api/story/:id', async (req, res) => {
   const id = req.params.id;
   try {
     const meta = await readMeta();
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'not found' });
-    const file = await storyPath(id);
-    let content = '';
-    try {
-      content = await fs.readFile(file, 'utf8');
-    } catch (e) {
-      content = '';
-    }
-    res.json({ id, name: item.name, author: item.author || DEFAULT_USER, content });
+    res.json({ id, name: item.name, author: item.author || DEFAULT_USER });
   } catch (err) {
- console.error(err);
+    console.error(err);
     res.status(500).json({ error: 'failed to read story' });
   }
 });
 
- // Save content (autosave)
- app.post('/api/save/:id', async (req, res) => {
-   const id = req.params.id;
-   if (!req.body || typeof req.body.content !== 'string') {
-     return res.status(400).json({ error: 'content required' });
-   }
-   try {
-     const meta = await readMeta();
-     const item = meta.find(m => m.id === id);
-     if (!item) return res.status(404).json({ error: 'not found' });
-     const file = await storyPath(id);
-     await fs.writeFile(file, req.body.content, 'utf8');
-     res.json({ ok: true });
-   } catch (err) {
-     console.error(err);
-     res.status(500).json({ error: 'failed to save' });
-   }
- });
+// Delete story (remove metadata entry and entire story folder)
+app.delete('/api/story/:id', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const meta = await readMeta();
+    const idx = meta.findIndex(m => m.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'not found' });
+    meta.splice(idx, 1);
+    await writeMeta(meta);
 
- // Delete story (remove metadata entry and file)
- app.delete('/api/story/:id', async (req, res) => {
-   const id = req.params.id;
-   try {
- const meta = await readMeta();
-     const idx = meta.findIndex(m => m.id === id);
-     if (idx === -1) return res.status(404).json({ error: 'not found' });
-     // Remove metadata entry
-     const [removed] = meta.splice(idx, 1);
-     await writeMeta(meta);
-     // Remove the story file if present
-     const file = storyPath(id);
-     try {
-       await fs.unlink(file);
-     } catch (e) {
-       // ignore if missing
-     }
-     res.json({ ok: true, id });
-   } catch (err) {
-     console.error('failed to delete story', err);
-     res.status(500).json({ error: 'failed to delete' });
-   }
- });
+    const dir = storyDir(id);
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+    } catch (e) {
+      // ignore removal errors
+    }
+    res.json({ ok: true, id });
+  } catch (err) {
+    console.error('failed to delete story', err);
+    res.status(500).json({ error: 'failed to delete' });
+  }
+});
+
+// --- Tile order helpers ---
+
+async function readTileOrder(id) {
+  const orderFile = path.join(storyDir(id), 'tiles', '_order.json');
+  try {
+    const raw = await fs.readFile(orderFile, 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    return null; // no order file yet
+  }
+}
+
+async function writeTileOrder(id, order) {
+  const orderFile = path.join(storyDir(id), 'tiles', '_order.json');
+  await fs.writeFile(orderFile, JSON.stringify(order, null, 2), 'utf8');
+}
+
+// --- Tile endpoints ---
+
+// List tiles for a story (respects _order.json)
+app.get('/api/story/:id/tiles', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const tilesDir = path.join(storyDir(id), 'tiles');
+    let files = [];
+    try {
+      files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
+    } catch (e) {
+      files = [];
+    }
+
+    // Apply ordering from _order.json
+    const order = await readTileOrder(id);
+    let ordered;
+    if (order && Array.isArray(order)) {
+      const fileSet = new Set(files);
+      // Start with ordered entries that still exist on disk
+      ordered = order.filter(f => fileSet.has(f));
+      // Append any files not in the order (e.g. newly discovered)
+      for (const f of files) {
+        if (!order.includes(f)) ordered.push(f);
+      }
+    } else {
+      ordered = files;
+    }
+
+    const tiles = ordered.map(f => ({ filename: f, name: f.replace(/\.md$/, '') }));
+    res.json(tiles);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to list tiles' });
+  }
+});
+
+// Create a new tile (auto-named chapter-N, finding the next unused number)
+app.post('/api/story/:id/tiles', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const tilesDir = path.join(storyDir(id), 'tiles');
+    await fs.mkdir(tilesDir, { recursive: true });
+
+    // Find the next unused chapter number
+    let files = [];
+    try {
+      files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
+    } catch (e) {
+      files = [];
+    }
+    const existingSet = new Set(files);
+    let num = files.length + 1;
+    while (existingSet.has(`chapter-${num}.md`)) {
+      num++;
+    }
+    const filename = `chapter-${num}.md`;
+    const filePath = path.join(tilesDir, filename);
+
+    await fs.writeFile(filePath, '', 'utf8');
+
+    // Append to order
+    const order = (await readTileOrder(id)) || files;
+    order.push(filename);
+    await writeTileOrder(id, order);
+
+    res.json({ filename, name: `chapter-${num}` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to create tile' });
+  }
+});
+
+// Get tile content
+app.get('/api/story/:id/tiles/:filename', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const filePath = path.join(storyDir(id), 'tiles', filename);
+    let content = '';
+    try {
+      content = await fs.readFile(filePath, 'utf8');
+    } catch (e) {
+      return res.status(404).json({ error: 'tile not found' });
+    }
+    res.json({ filename, name: filename.replace(/\.md$/, ''), content });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to read tile' });
+  }
+});
+
+// Save tile content
+app.post('/api/story/:id/tiles/:filename/save', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  if (!req.body || typeof req.body.content !== 'string') {
+    return res.status(400).json({ error: 'content required' });
+  }
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const filePath = path.join(storyDir(id), 'tiles', filename);
+    // Verify tile exists
+    try {
+      await fs.access(filePath);
+    } catch (e) {
+      return res.status(404).json({ error: 'tile not found' });
+    }
+    await fs.writeFile(filePath, req.body.content, 'utf8');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to save tile' });
+  }
+});
+
+// Rename tile
+app.post('/api/story/:id/tiles/:filename/rename', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  const newName = (req.body && req.body.name) ? String(req.body.name) : undefined;
+  if (!newName) return res.status(400).json({ error: 'name required' });
+
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const tilesDir = path.join(storyDir(id), 'tiles');
+    const oldPath = path.join(tilesDir, filename);
+    try {
+      await fs.access(oldPath);
+    } catch (e) {
+      return res.status(404).json({ error: 'tile not found' });
+    }
+
+    let newFilename = sanitizeFilename(newName) + '.md';
+    // Avoid collisions
+    if (newFilename !== filename) {
+      let newPath = path.join(tilesDir, newFilename);
+      let counter = 1;
+      while (true) {
+        try {
+          await fs.access(newPath);
+          counter++;
+          newFilename = sanitizeFilename(newName) + '-' + counter + '.md';
+          newPath = path.join(tilesDir, newFilename);
+        } catch (e) {
+          break;
+        }
+      }
+      await fs.rename(oldPath, newPath);
+
+      // Update _order.json
+      const order = await readTileOrder(id);
+      if (order && Array.isArray(order)) {
+        const idx = order.indexOf(filename);
+        if (idx !== -1) {
+          order[idx] = newFilename;
+          await writeTileOrder(id, order);
+        }
+      }
+    }
+
+    res.json({ filename: newFilename, name: newName });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to rename tile' });
+  }
+});
+
+// Delete tile
+app.delete('/api/story/:id/tiles/:filename', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const filePath = path.join(storyDir(id), 'tiles', filename);
+    try {
+      await fs.unlink(filePath);
+    } catch (e) {
+      return res.status(404).json({ error: 'tile not found' });
+    }
+
+    // Remove from _order.json
+    const order = await readTileOrder(id);
+    if (order && Array.isArray(order)) {
+      const idx = order.indexOf(filename);
+      if (idx !== -1) {
+        order.splice(idx, 1);
+        await writeTileOrder(id, order);
+      }
+    }
+
+    res.json({ ok: true, filename });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to delete tile' });
+  }
+});
+
+// Reorder tiles
+app.post('/api/story/:id/tiles/reorder', async (req, res) => {
+  const id = req.params.id;
+  const order = req.body && req.body.order;
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
+
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    await writeTileOrder(id, order);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to reorder tiles' });
+  }
+});
 
 // Fallback to index.html for SPA navigation
 app.get('*', (req, res) => {
