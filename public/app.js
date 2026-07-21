@@ -138,6 +138,17 @@
     }
   }
 
+  // Configure marked to open links in new tab
+  if (typeof marked !== 'undefined') {
+    const renderer = new marked.Renderer();
+    const originalLink = renderer.link.bind(renderer);
+    renderer.link = function(href, title, text) {
+      const html = originalLink(href, title, text);
+      return html.replace('<a ', '<a target="_blank" rel="noopener noreferrer" ');
+    };
+    marked.setOptions({ renderer });
+  }
+
   // Render markdown text into the preview pane with optional scroll fraction
   function renderMarkdownToPreview(text, scrollFraction) {
     const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(text || '') : (text || '');
@@ -842,6 +853,8 @@
 
     if (action === 'insert-table') {
       insertTable();
+    } else if (action === 'insert-link') {
+      insertLink();
     } else if (action === 'insert-picture') {
       insertPicture();
     }
@@ -861,6 +874,32 @@
     editor.selectionEnd = newPos;
 
     // Trigger update
+    editor.dispatchEvent(new Event('input'));
+    editor.focus();
+  }
+
+  // --- Insert Link ---
+
+  function insertLink() {
+    // If text is selected, use it as default link text
+    const selectedText = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    const linkText = prompt('Link text:', selectedText || '');
+    if (linkText === null) return;
+    const linkUrl = prompt('URL:', 'https://');
+    if (!linkUrl) return;
+
+    const md = `[${linkText}](${linkUrl})`;
+    // Replace selection (or insert at cursor if no selection)
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const before = editor.value.substring(0, start);
+    const after = editor.value.substring(end);
+    editor.value = before + md + after;
+
+    const newPos = start + md.length;
+    editor.selectionStart = newPos;
+    editor.selectionEnd = newPos;
+
     editor.dispatchEvent(new Event('input'));
     editor.focus();
   }
