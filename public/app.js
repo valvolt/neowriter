@@ -361,7 +361,16 @@
         mark.className = 'highlight-mark';
         mark.textContent = match[0];
         const filename = nameToFilename[match[0].toLowerCase()];
-        if (filename) mark.dataset.highlightFilename = filename;
+        if (filename) {
+          mark.dataset.highlightFilename = filename;
+          // Use keyword color if highlight has keywords
+          const firstKw = getFirstKeywordForHighlight(filename);
+          if (firstKw) {
+            const kwStyle = keywordStyleFor(firstKw);
+            mark.style.background = kwStyle.background;
+            mark.style.color = kwStyle.color;
+          }
+        }
         frag.appendChild(mark);
         lastIndex = combinedRegex.lastIndex;
       }
@@ -371,6 +380,41 @@
       }
       parent.replaceChild(frag, textNode);
     });
+  }
+
+  // --- Extract keywords from highlight content ---
+
+  function extractKeywordsFromContent(content) {
+    if (!content) return [];
+    const re = /\u2021([\p{L}\p{N}_-]+)/gu;
+    const set = new Set();
+    let m;
+    while ((m = re.exec(content)) !== null) {
+      set.add(m[1]);
+    }
+    return Array.from(set);
+  }
+
+  // Get the first keyword for a highlight (by filename), or null
+  function getFirstKeywordForHighlight(filename) {
+    const content = highlightsContentCache[filename];
+    if (!content) return null;
+    const keywords = extractKeywordsFromContent(content);
+    return keywords.length > 0 ? keywords[0] : null;
+  }
+
+  // Pre-fetch all highlight contents (for keyword extraction and tooltips)
+  async function prefetchAllHighlightContents() {
+    if (!currentStoryId || highlightsList.length === 0) return;
+    await Promise.all(highlightsList.map(async (hl) => {
+      if (highlightsContentCache[hl.filename] !== undefined) return;
+      try {
+        const res = await api(`/api/story/${currentStoryId}/highlights/${hl.filename}`);
+        highlightsContentCache[hl.filename] = res.content || '';
+      } catch (e) {
+        highlightsContentCache[hl.filename] = '';
+      }
+    }));
   }
 
   // --- Highlight hover tooltip ---
@@ -591,6 +635,7 @@
 
     await fetchAllTilesContent();
     await fetchHighlightsList();
+    await prefetchAllHighlightContents();
     loadTilesList();
     loadHighlightsList();
     renderPreview();
@@ -955,6 +1000,24 @@
     nameSpan.title = hl.filename;
     nameSpan.style.cursor = 'pointer';
     li.appendChild(nameSpan);
+
+    // Keyword pills from highlight content
+    const hlContent = highlightsContentCache[hl.filename] || '';
+    const keywords = extractKeywordsFromContent(hlContent);
+    if (keywords.length > 0) {
+      const kwContainer = document.createElement('span');
+      kwContainer.className = 'highlight-keywords';
+      keywords.forEach(kw => {
+        const pill = document.createElement('span');
+        pill.className = 'keyword-pill';
+        pill.textContent = kw;
+        const style = keywordStyleFor(kw);
+        pill.style.background = style.background;
+        pill.style.color = style.color;
+        kwContainer.appendChild(pill);
+      });
+      li.appendChild(kwContainer);
+    }
 
     // Occurrence count badge
     const countSpan = document.createElement('span');
