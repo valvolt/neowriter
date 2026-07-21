@@ -222,6 +222,89 @@
     renderMarkdownToPreview(text, fraction);
   }
 
+  // --- Keyword pill rendering ---
+
+  function hashStringToInt(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      h = ((h << 5) - h) + str.charCodeAt(i);
+      h |= 0;
+    }
+    return Math.abs(h);
+  }
+
+  function keywordStyleFor(keyword) {
+    const palette = [
+      { background: 'rgb(245, 245, 245)', color: 'rgb(51, 51, 51)' },
+      { background: 'rgb(238, 238, 238)', color: 'rgb(34, 34, 34)' },
+      { background: 'rgb(230, 243, 255)', color: 'rgb(20, 60, 110)' },
+      { background: 'rgb(214, 234, 248)', color: 'rgb(21, 67, 96)' },
+      { background: 'rgb(224, 247, 250)', color: 'rgb(0, 77, 102)' },
+      { background: 'rgb(232, 245, 233)', color: 'rgb(27, 94, 32)' },
+      { background: 'rgb(220, 237, 200)', color: 'rgb(51, 105, 30)' },
+      { background: 'rgb(224, 247, 250)', color: 'rgb(0, 96, 100)' },
+      { background: 'rgb(225, 245, 254)', color: 'rgb(1, 87, 155)' },
+      { background: 'rgb(243, 229, 245)', color: 'rgb(74, 20, 140)' },
+      { background: 'rgb(237, 231, 246)', color: 'rgb(69, 39, 160)' },
+      { background: 'rgb(255, 235, 238)', color: 'rgb(136, 14, 79)' },
+      { background: 'rgb(252, 228, 236)', color: 'rgb(173, 20, 87)' },
+      { background: 'rgb(255, 243, 224)', color: 'rgb(230, 81, 0)' },
+      { background: 'rgb(255, 249, 230)', color: 'rgb(204, 112, 0)' },
+      { background: 'rgb(255, 253, 231)', color: 'rgb(245, 127, 23)' },
+      { background: 'rgb(255, 248, 225)', color: 'rgb(245, 124, 0)' },
+      { background: 'rgb(239, 235, 233)', color: 'rgb(78, 52, 46)' },
+      { background: 'rgb(250, 244, 239)', color: 'rgb(93, 64, 55)' },
+      { background: 'rgb(236, 239, 241)', color: 'rgb(33, 33, 33)' }
+    ];
+    const key = (typeof keyword === 'string') ? keyword.toLowerCase() : String(keyword || '');
+    const idx = hashStringToInt(key) % palette.length;
+    return palette[idx];
+  }
+
+  function renderKeywordsInPreview() {
+    // Match ‡ followed by word characters (Unicode letters, numbers, hyphens, underscores)
+    const re = /\u2021([\p{L}\p{N}_-]+)/gu;
+
+    const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, null, false);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      textNodes.push(node);
+    }
+
+    textNodes.forEach(textNode => {
+      if (!textNode.parentElement) return;
+      const parent = textNode.parentElement;
+      if (parent.closest('code, pre, .mermaid, .keyword-pill')) return;
+
+      const text = textNode.nodeValue;
+      if (!re.test(text)) return;
+      re.lastIndex = 0;
+
+      const frag = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match;
+      re.lastIndex = 0;
+      while ((match = re.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          frag.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+        }
+        const span = document.createElement('span');
+        span.className = 'keyword-pill';
+        span.textContent = match[1]; // keyword without the ‡
+        const style = keywordStyleFor(match[1]);
+        span.style.background = style.background;
+        span.style.color = style.color;
+        frag.appendChild(span);
+        lastIndex = re.lastIndex;
+      }
+      if (lastIndex < text.length) {
+        frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+      }
+      parent.replaceChild(frag, textNode);
+    });
+  }
+
   // --- Highlight words in preview ---
 
   // Build a map from lowercase highlight name to filename for quick lookup
@@ -432,7 +515,8 @@
         preview.innerHTML = '';
       }
     }
-    // Apply highlight word marking after rendering
+    // Apply keyword pill rendering and highlight word marking after rendering
+    renderKeywordsInPreview();
     highlightWordsInPreview();
   }
 
