@@ -63,6 +63,9 @@
   let highlightsSortMode = 'alpha';
   const highlightsSortEl = $('highlights-sort');
 
+  // Bubble keyword: when set, highlights with this keyword float to top
+  let highlightsBubbleKeyword = null;
+
   // Toggle for highlight rendering in preview
   let highlightsRenderEnabled = true;
   const toggleHighlightsEl = $('toggle-highlights');
@@ -964,6 +967,25 @@
       ...hl,
       count: countHighlightOccurrences(hl.name)
     }));
+
+    // If bubble keyword is active, partition by keyword membership
+    if (highlightsBubbleKeyword) {
+      const withKw = [];
+      const withoutKw = [];
+      items.forEach(hl => {
+        const content = highlightsContentCache[hl.filename] || '';
+        const keywords = extractKeywordsFromContent(content);
+        if (keywords.some(k => k.toLowerCase() === highlightsBubbleKeyword.toLowerCase())) {
+          withKw.push(hl);
+        } else {
+          withoutKw.push(hl);
+        }
+      });
+      withKw.sort((a, b) => a.name.localeCompare(b.name));
+      withoutKw.sort((a, b) => a.name.localeCompare(b.name));
+      return [...withKw, ...withoutKw];
+    }
+
     if (highlightsSortMode === 'most') {
       items.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     } else if (highlightsSortMode === 'least') {
@@ -1007,7 +1029,7 @@
     nameSpan.style.cursor = 'pointer';
     li.appendChild(nameSpan);
 
-    // Keyword pills from highlight content
+    // Keyword pills from highlight content (clickable for bubble-to-top)
     const hlContent = highlightsContentCache[hl.filename] || '';
     const keywords = extractKeywordsFromContent(hlContent);
     if (keywords.length > 0) {
@@ -1017,9 +1039,16 @@
         const pill = document.createElement('span');
         pill.className = 'keyword-pill';
         pill.textContent = kw;
+        pill.style.cursor = 'pointer';
         const style = keywordStyleFor(kw);
         pill.style.background = style.background;
         pill.style.color = style.color;
+        pill.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          highlightsBubbleKeyword = kw;
+          if (highlightsSortEl) highlightsSortEl.value = '';
+          loadHighlightsList();
+        });
         kwContainer.appendChild(pill);
       });
       li.appendChild(kwContainer);
@@ -1234,7 +1263,8 @@
   // Highlights sort selector
   if (highlightsSortEl) {
     highlightsSortEl.addEventListener('change', () => {
-      highlightsSortMode = highlightsSortEl.value;
+      highlightsSortMode = highlightsSortEl.value || 'alpha';
+      highlightsBubbleKeyword = null; // clear bubble when user picks a sort
       loadHighlightsList();
     });
   }
