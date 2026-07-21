@@ -1286,9 +1286,13 @@
   const contextMenu = $('context-menu');
 
   function showContextMenu(x, y) {
-    contextMenu.style.left = x + 'px';
-    contextMenu.style.top = y + 'px';
     contextMenu.style.display = 'block';
+    // Ensure menu stays within viewport
+    const menuRect = contextMenu.getBoundingClientRect();
+    const maxX = window.innerWidth - menuRect.width - 4;
+    const maxY = window.innerHeight - menuRect.height - 4;
+    contextMenu.style.left = Math.min(x, maxX) + 'px';
+    contextMenu.style.top = Math.min(y, maxY) + 'px';
   }
 
   function hideContextMenu() {
