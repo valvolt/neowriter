@@ -4,8 +4,10 @@
 // - Render markdown with marked -> HTML
 // - Post-process text nodes to replace arrow sequences (but not inside code/pre)
 // - Render mermaid diagrams from fenced ```mermaid blocks
-// - Sync editor -> preview scrolling and autosave
+// - Full-story preview: renders all tiles concatenated in order
+// - Scroll preview to cursor position when typing
 // - Binder UI: stories contain tiles and highlights sections
+// - Drag-and-drop tile reordering
 (() => {
   const api = (path, opts = {}) => fetch(path, opts).then(r => r.json());
   const $ = id => document.getElementById(id);
@@ -43,6 +45,10 @@
   let currentStoryId = null;
   let currentStoryName = null;
   let currentTileFilename = null;
+
+  // Full-story rendering state: cache of all tile contents and their order
+  let tilesOrder = [];       // array of filenames in display order
+  let tilesCache = {};       // { filename: content_string }
 
   // --- Utilities ---
 
@@ -123,7 +129,9 @@
     }
   }
 
-  function renderMarkdown(text, forceScrollBottom = false) {
+  // Render HTML from markdown text into the preview pane.
+  // scrollFraction: if provided (0-1), scroll preview to that fraction of its height.
+  function renderMarkdownToPreview(text, scrollFraction) {
     const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(text || '') : (text || '');
     const container = document.createElement('div');
     container.innerHTML = html;
@@ -132,32 +140,64 @@
 
     try { renderMermaidDiagrams(preview); } catch (e) { console.error('renderMermaidDiagrams error', e); }
 
-    try {
-      if (forceScrollBottom) {
-        preview.scrollTop = preview.scrollHeight;
-      } else {
-        const editorAtBottom = (editor.scrollTop + editor.clientHeight) >= (editor.scrollHeight - 20);
-        if (editorAtBottom) {
-          preview.scrollTop = preview.scrollHeight;
-        } else {
-          const editorScroll = editor.scrollTop;
-          const editorHeight = Math.max(1, editor.scrollHeight - editor.clientHeight);
-          const previewHeight = Math.max(1, preview.scrollHeight - preview.clientHeight);
-          const ratio = editorScroll / editorHeight;
-          preview.scrollTop = ratio * previewHeight;
-        }
-      }
-    } catch (e) {}
+    // Scroll to the specified fraction
+    if (typeof scrollFraction === 'number' && isFinite(scrollFraction)) {
+      const maxScroll = preview.scrollHeight - preview.clientHeight;
+      preview.scrollTop = Math.max(0, Math.min(maxScroll, scrollFraction * preview.scrollHeight));
+    }
   }
 
-  function syncScrollFromEditor() {
+  // --- Full-story rendering ---
+
+  // Get the full concatenated story text (all tiles in order)
+  function getFullStoryText() {
+    return tilesOrder.map(f => tilesCache[f] || '').join('\n\n');
+  }
+
+  // Calculate the scroll fraction for the cursor position within the full story
+  function getCursorScrollFraction() {
+    if (!currentTileFilename || !tilesOrder.length) return 0;
+
+    // Calculate character offset of cursor within the full text
+    let offsetBefore = 0;
+    for (const f of tilesOrder) {
+      if (f === currentTileFilename) break;
+      offsetBefore += (tilesCache[f] || '').length + 2; // +2 for the \n\n separator
+    }
+    const cursorInTile = editor.selectionStart || 0;
+    const totalOffset = offsetBefore + cursorInTile;
+    const fullLength = getFullStoryText().length;
+    if (fullLength === 0) return 0;
+    return totalOffset / fullLength;
+  }
+
+  // Render the full story and scroll to cursor position
+  function renderFullStory() {
+    const fullText = getFullStoryText();
+    const fraction = getCursorScrollFraction();
+    renderMarkdownToPreview(fullText, fraction);
+  }
+
+  // Fetch all tile contents for the current story and populate cache
+  async function fetchAllTilesContent() {
+    if (!currentStoryId) return;
     try {
-      const editorScroll = editor.scrollTop;
-      const editorHeight = Math.max(1, editor.scrollHeight - editor.clientHeight);
-      const previewHeight = Math.max(1, preview.scrollHeight - preview.clientHeight);
-      const ratio = editorScroll / editorHeight;
-      preview.scrollTop = ratio * previewHeight;
-    } catch (e) {}
+      const tiles = await api(`/api/story/${currentStoryId}/tiles`);
+      const tilesList = Array.isArray(tiles) ? tiles : [];
+      tilesOrder = tilesList.map(t => t.filename);
+      tilesCache = {};
+      // Fetch each tile's content in parallel
+      await Promise.all(tilesList.map(async (tile) => {
+        try {
+          const res = await api(`/api/story/${currentStoryId}/tiles/${tile.filename}`);
+          tilesCache[tile.filename] = res.content || '';
+        } catch (e) {
+          tilesCache[tile.filename] = '';
+        }
+      }));
+    } catch (e) {
+      console.error('failed to fetch all tiles content', e);
+    }
   }
 
   // --- View switching: story list vs binder ---
@@ -169,6 +209,8 @@
     currentStoryId = null;
     currentStoryName = null;
     currentTileFilename = null;
+    tilesOrder = [];
+    tilesCache = {};
     if (editor) {
       editor.value = '';
       editor.disabled = true;
@@ -180,14 +222,19 @@
     if (preview) preview.innerHTML = '';
   }
 
-  function showBinder(storyId, storyName) {
+  async function showBinder(storyId, storyName) {
     currentStoryId = storyId;
     currentStoryName = storyName;
+    currentTileFilename = null;
     storyListEl.style.display = 'none';
     document.querySelector('.menu-controls').style.display = 'none';
     binderEl.style.display = '';
     binderStoryName.textContent = storyName;
+
+    // Fetch all tiles content for full-story rendering
+    await fetchAllTilesContent();
     loadTilesList();
+    renderFullStory();
   }
 
   // --- Story list ---
@@ -294,7 +341,7 @@
       });
       await loadList();
       if (res && res.id) {
-        showBinder(res.id, res.name);
+        await showBinder(res.id, res.name);
         // Open the first tile in the editor
         if (res.tile && res.tile.filename) {
           loadTile(res.tile.filename);
@@ -308,18 +355,13 @@
 
   // --- Binder: tiles list ---
 
-  async function loadTilesList() {
+  function loadTilesList() {
     binderTilesList.innerHTML = '';
     if (!currentStoryId) return;
-    try {
-      const tiles = await api(`/api/story/${currentStoryId}/tiles`);
-      (Array.isArray(tiles) ? tiles : []).forEach(tile => {
-        binderTilesList.appendChild(buildTileItem(tile));
-      });
-    } catch (e) {
-      console.error('failed to load tiles', e);
-      binderTilesList.innerHTML = '<li class="error">Failed to load tiles</li>';
-    }
+    tilesOrder.forEach(filename => {
+      const tile = { filename, name: filename.replace(/\.md$/, '') };
+      binderTilesList.appendChild(buildTileItem(tile));
+    });
   }
 
   function buildTileItem(tile) {
@@ -339,7 +381,6 @@
     });
     li.addEventListener('dragend', () => {
       li.classList.remove('dragging');
-      // Remove all drop indicators
       binderTilesList.querySelectorAll('.tile-item').forEach(el => el.classList.remove('drag-over'));
     });
     li.addEventListener('dragover', (ev) => {
@@ -356,14 +397,11 @@
       const draggedFilename = ev.dataTransfer.getData('text/plain');
       if (!draggedFilename || draggedFilename === tile.filename) return;
 
-      // Compute new order from current DOM
-      const items = Array.from(binderTilesList.querySelectorAll('.tile-item'));
-      const order = items.map(el => el.dataset.filename);
-      // Remove dragged item from its current position
+      // Compute new order
+      const order = [...tilesOrder];
       const fromIdx = order.indexOf(draggedFilename);
       if (fromIdx === -1) return;
       order.splice(fromIdx, 1);
-      // Insert before the drop target
       const toIdx = order.indexOf(tile.filename);
       order.splice(toIdx, 0, draggedFilename);
 
@@ -374,7 +412,9 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ order })
         });
-        await loadTilesList();
+        tilesOrder = order;
+        loadTilesList();
+        renderFullStory();
       } catch (e) {
         console.error('reorder failed', e);
       }
@@ -417,12 +457,20 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: newName })
         });
-        // If the currently open tile was renamed, update the reference
-        if (currentTileFilename === tile.filename && res.filename) {
-          currentTileFilename = res.filename;
-          updateBreadcrumb();
+        if (res.filename && res.filename !== tile.filename) {
+          // Update cache and order
+          const content = tilesCache[tile.filename] || '';
+          delete tilesCache[tile.filename];
+          tilesCache[res.filename] = content;
+          const idx = tilesOrder.indexOf(tile.filename);
+          if (idx !== -1) tilesOrder[idx] = res.filename;
+          // Update current tile reference if needed
+          if (currentTileFilename === tile.filename) {
+            currentTileFilename = res.filename;
+            updateBreadcrumb();
+          }
         }
-        await loadTilesList();
+        loadTilesList();
       } catch (e) {
         console.error('rename tile failed', e);
         alert('Rename tile failed');
@@ -436,6 +484,9 @@
       try {
         const resp = await fetch(`/api/story/${currentStoryId}/tiles/${tile.filename}`, { method: 'DELETE' });
         if (!resp.ok) throw new Error('delete tile failed');
+        // Update cache and order
+        delete tilesCache[tile.filename];
+        tilesOrder = tilesOrder.filter(f => f !== tile.filename);
         // If the deleted tile was open, clear editor
         if (currentTileFilename === tile.filename) {
           currentTileFilename = null;
@@ -443,10 +494,10 @@
           editor.disabled = true;
           editor.placeholder = 'select a tile to edit';
           updateStats('');
-          preview.innerHTML = '';
           updateBreadcrumb();
         }
-        await loadTilesList();
+        loadTilesList();
+        renderFullStory();
       } catch (e) {
         console.error('delete tile failed', e);
         alert('Delete tile failed');
@@ -456,26 +507,20 @@
     return li;
   }
 
-  async function loadTile(filename) {
+  function loadTile(filename) {
     if (!currentStoryId) return;
-    try {
-      const res = await api(`/api/story/${currentStoryId}/tiles/${filename}`);
-      currentTileFilename = filename;
-      if (editor) {
-        editor.disabled = false;
-        editor.value = res.content || '';
-        editor.placeholder = 'Start typing markdown...';
-      }
-      updateStats(editor.value);
-      renderMarkdown(editor.value);
-      updateBreadcrumb();
-      // Highlight active tile in list
-      loadTilesList();
-      try { editor.focus(); } catch (e) {}
-    } catch (e) {
-      console.error('load tile failed', e);
-      alert('Failed to load tile');
+    currentTileFilename = filename;
+    const content = tilesCache[filename] || '';
+    if (editor) {
+      editor.disabled = false;
+      editor.value = content;
+      editor.placeholder = 'Start typing markdown...';
     }
+    updateStats(editor.value);
+    updateBreadcrumb();
+    loadTilesList();
+    renderFullStory();
+    try { editor.focus(); } catch (e) {}
   }
 
   async function addTile() {
@@ -486,8 +531,11 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       });
-      await loadTilesList();
       if (res && res.filename) {
+        // Update local state
+        tilesOrder.push(res.filename);
+        tilesCache[res.filename] = '';
+        loadTilesList();
         loadTile(res.filename);
       }
     } catch (e) {
@@ -499,7 +547,7 @@
   function updateBreadcrumb() {
     const storyLabel = currentStoryName || '';
     const tileLabel = currentTileFilename ? currentTileFilename.replace(/\.md$/, '') : '';
-    const breadcrumb = tileLabel ? `${storyLabel} › ${tileLabel}` : storyLabel;
+    const breadcrumb = tileLabel ? `${storyLabel} \u203A ${tileLabel}` : storyLabel;
     if (openStoryEl) openStoryEl.textContent = breadcrumb;
     if (currentName) currentName.textContent = breadcrumb;
   }
@@ -524,13 +572,29 @@
   editor.addEventListener('input', () => {
     const text = editor.value;
     updateStats(text);
-    const caretAtEnd = (editor.selectionStart === editor.selectionEnd)
-      && (editor.selectionStart >= editor.value.length - 1);
-    renderMarkdown(text, caretAtEnd);
+
+    // Update the cache for the current tile
+    if (currentTileFilename) {
+      tilesCache[currentTileFilename] = text;
+    }
+
+    // Render full story with scroll to cursor
+    renderFullStory();
+
+    // Autosave
     saveCurrent();
   });
 
-  editor.addEventListener('scroll', syncScrollFromEditor);
+  // Also update preview scroll on cursor movement (click, arrow keys)
+  editor.addEventListener('click', () => {
+    if (currentTileFilename) renderFullStory();
+  });
+  editor.addEventListener('keyup', (ev) => {
+    // Re-scroll on navigation keys
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown'].includes(ev.key)) {
+      if (currentTileFilename) renderFullStory();
+    }
+  });
 
   btnNew.addEventListener('click', createStory);
   btnRefresh.addEventListener('click', loadList);
@@ -545,5 +609,5 @@
   loadList();
 
   // Expose for debugging
-  window._neo = { loadList, loadTile, saveCurrent, renderMarkdown, showBinder, showStoryList };
+  window._neo = { loadList, loadTile, saveCurrent, renderFullStory, showBinder, showStoryList };
 })();
