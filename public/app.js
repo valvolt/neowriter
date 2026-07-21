@@ -1233,9 +1233,10 @@
       loadHighlightsList();
     }
 
-    // Update tooltip cache when editing a highlight
+    // Update tooltip cache when editing a highlight and refresh menu (keywords may change)
     if (editMode === 'highlight' && currentHighlightFilename) {
       highlightsContentCache[currentHighlightFilename] = text;
+      loadHighlightsList();
     }
 
     renderPreview();
