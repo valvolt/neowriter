@@ -4,21 +4,23 @@
 // - Render markdown with marked -> HTML
 // - Post-process text nodes to replace arrow sequences (but not inside code/pre)
 // - Render mermaid diagrams from fenced ```mermaid blocks
-// - Full-story preview: renders all tiles concatenated in order
+// - Full-story preview: renders all tiles concatenated in order (when editing tiles)
+// - Single-highlight preview: renders only the active highlight (when editing highlights)
 // - Scroll preview to cursor position when typing
 // - Binder UI: stories contain tiles and highlights sections
-// - Drag-and-drop tile reordering
+// - Drag-and-drop tile reordering (not for highlights)
 (() => {
   const api = (path, opts = {}) => fetch(path, opts).then(r => r.json());
   const $ = id => document.getElementById(id);
 
-  const sidebarEl = $('sidebar');
   const storyListEl = $('story-list');
   const binderEl = $('binder');
   const binderStoryName = $('binder-story-name');
   const binderTilesList = $('binder-tiles-list');
+  const binderHighlightsList = $('binder-highlights-list');
   const btnBack = $('btn-back');
   const btnAddTile = $('btn-add-tile');
+  const btnAddHighlight = $('btn-add-highlight');
   const editor = $('editor');
   const preview = $('preview');
   const stats = $('stats');
@@ -35,7 +37,7 @@
     userInfoEl.textContent = `${uname} (${lm})`;
   }
 
-  // Initial editor state: disabled until user opens a tile.
+  // Initial editor state
   if (editor) {
     editor.disabled = true;
     editor.placeholder = 'create or open a story';
@@ -44,18 +46,25 @@
 
   let currentStoryId = null;
   let currentStoryName = null;
-  let currentTileFilename = null;
 
-  // Full-story rendering state: cache of all tile contents and their order
-  let tilesOrder = [];       // array of filenames in display order
-  let tilesCache = {};       // { filename: content_string }
+  // Editing mode: 'tile' or 'highlight'
+  let editMode = null;
+  let currentTileFilename = null;
+  let currentHighlightFilename = null;
+
+  // Full-story rendering state
+  let tilesOrder = [];
+  let tilesCache = {};
+
+  // Highlights list (sorted alphabetically, fetched from server)
+  let highlightsList = [];
 
   // --- Utilities ---
 
   function updateStats(text) {
     const chars = text.length;
     const words = text.trim().length ? text.trim().split(/\s+/).length : 0;
-    stats.textContent = `Words: ${words} — Chars: ${chars}`;
+    stats.textContent = `Words: ${words} \u2014 Chars: ${chars}`;
   }
 
   function initMermaidIfPresent() {
@@ -129,8 +138,7 @@
     }
   }
 
-  // Render HTML from markdown text into the preview pane.
-  // scrollFraction: if provided (0-1), scroll preview to that fraction of its height.
+  // Render markdown text into the preview pane with optional scroll fraction
   function renderMarkdownToPreview(text, scrollFraction) {
     const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(text || '') : (text || '');
     const container = document.createElement('div');
@@ -140,29 +148,24 @@
 
     try { renderMermaidDiagrams(preview); } catch (e) { console.error('renderMermaidDiagrams error', e); }
 
-    // Scroll to the specified fraction
     if (typeof scrollFraction === 'number' && isFinite(scrollFraction)) {
       const maxScroll = preview.scrollHeight - preview.clientHeight;
       preview.scrollTop = Math.max(0, Math.min(maxScroll, scrollFraction * preview.scrollHeight));
     }
   }
 
-  // --- Full-story rendering ---
+  // --- Full-story rendering (tiles mode) ---
 
-  // Get the full concatenated story text (all tiles in order)
   function getFullStoryText() {
     return tilesOrder.map(f => tilesCache[f] || '').join('\n\n');
   }
 
-  // Calculate the scroll fraction for the cursor position within the full story
   function getCursorScrollFraction() {
     if (!currentTileFilename || !tilesOrder.length) return 0;
-
-    // Calculate character offset of cursor within the full text
     let offsetBefore = 0;
     for (const f of tilesOrder) {
       if (f === currentTileFilename) break;
-      offsetBefore += (tilesCache[f] || '').length + 2; // +2 for the \n\n separator
+      offsetBefore += (tilesCache[f] || '').length + 2;
     }
     const cursorInTile = editor.selectionStart || 0;
     const totalOffset = offsetBefore + cursorInTile;
@@ -171,14 +174,40 @@
     return totalOffset / fullLength;
   }
 
-  // Render the full story and scroll to cursor position
   function renderFullStory() {
     const fullText = getFullStoryText();
     const fraction = getCursorScrollFraction();
     renderMarkdownToPreview(fullText, fraction);
   }
 
-  // Fetch all tile contents for the current story and populate cache
+  // --- Single-highlight rendering (highlight mode) ---
+
+  function renderCurrentHighlight() {
+    const text = editor.value || '';
+    // Simple proportional scroll based on cursor position in the highlight
+    const cursorPos = editor.selectionStart || 0;
+    const fraction = text.length > 0 ? cursorPos / text.length : 0;
+    renderMarkdownToPreview(text, fraction);
+  }
+
+  // --- Render dispatcher ---
+
+  function renderPreview() {
+    if (editMode === 'tile') {
+      renderFullStory();
+    } else if (editMode === 'highlight') {
+      renderCurrentHighlight();
+    } else {
+      // No active edit — show full story if we have tiles
+      if (tilesOrder.length > 0) {
+        renderMarkdownToPreview(getFullStoryText(), 0);
+      } else {
+        preview.innerHTML = '';
+      }
+    }
+  }
+
+  // Fetch all tile contents for the current story
   async function fetchAllTilesContent() {
     if (!currentStoryId) return;
     try {
@@ -186,7 +215,6 @@
       const tilesList = Array.isArray(tiles) ? tiles : [];
       tilesOrder = tilesList.map(t => t.filename);
       tilesCache = {};
-      // Fetch each tile's content in parallel
       await Promise.all(tilesList.map(async (tile) => {
         try {
           const res = await api(`/api/story/${currentStoryId}/tiles/${tile.filename}`);
@@ -200,7 +228,19 @@
     }
   }
 
-  // --- View switching: story list vs binder ---
+  // Fetch highlights list
+  async function fetchHighlightsList() {
+    if (!currentStoryId) return;
+    try {
+      const hl = await api(`/api/story/${currentStoryId}/highlights`);
+      highlightsList = Array.isArray(hl) ? hl : [];
+    } catch (e) {
+      console.error('failed to fetch highlights', e);
+      highlightsList = [];
+    }
+  }
+
+  // --- View switching ---
 
   function showStoryList() {
     storyListEl.style.display = '';
@@ -208,9 +248,12 @@
     binderEl.style.display = 'none';
     currentStoryId = null;
     currentStoryName = null;
+    editMode = null;
     currentTileFilename = null;
+    currentHighlightFilename = null;
     tilesOrder = [];
     tilesCache = {};
+    highlightsList = [];
     if (editor) {
       editor.value = '';
       editor.disabled = true;
@@ -225,16 +268,19 @@
   async function showBinder(storyId, storyName) {
     currentStoryId = storyId;
     currentStoryName = storyName;
+    editMode = null;
     currentTileFilename = null;
+    currentHighlightFilename = null;
     storyListEl.style.display = 'none';
     document.querySelector('.menu-controls').style.display = 'none';
     binderEl.style.display = '';
     binderStoryName.textContent = storyName;
 
-    // Fetch all tiles content for full-story rendering
     await fetchAllTilesContent();
+    await fetchHighlightsList();
     loadTilesList();
-    renderFullStory();
+    loadHighlightsList();
+    renderPreview();
   }
 
   // --- Story list ---
@@ -276,7 +322,6 @@
 
     li.appendChild(controls);
 
-    // Click name to open binder
     left.addEventListener('click', () => showBinder(item.id, item.name));
     nameSpan.addEventListener('click', (ev) => { ev.stopPropagation(); showBinder(item.id, item.name); });
 
@@ -304,9 +349,7 @@
       try {
         const resp = await fetch(`/api/story/${item.id}`, { method: 'DELETE' });
         if (!resp.ok) throw new Error('delete failed');
-        if (currentStoryId === item.id) {
-          showStoryList();
-        }
+        if (currentStoryId === item.id) showStoryList();
         await loadList();
       } catch (e) {
         console.error('delete failed', e);
@@ -342,9 +385,8 @@
       await loadList();
       if (res && res.id) {
         await showBinder(res.id, res.name);
-        // Open the first tile in the editor
         if (res.tile && res.tile.filename) {
-          loadTile(res.tile.filename);
+          openTile(res.tile.filename);
         }
       }
     } catch (e) {
@@ -368,7 +410,7 @@
     const li = document.createElement('li');
     li.className = 'tile-item';
     li.dataset.filename = tile.filename;
-    if (tile.filename === currentTileFilename) {
+    if (editMode === 'tile' && tile.filename === currentTileFilename) {
       li.classList.add('active');
     }
 
@@ -397,7 +439,6 @@
       const draggedFilename = ev.dataTransfer.getData('text/plain');
       if (!draggedFilename || draggedFilename === tile.filename) return;
 
-      // Compute new order
       const order = [...tilesOrder];
       const fromIdx = order.indexOf(draggedFilename);
       if (fromIdx === -1) return;
@@ -405,7 +446,6 @@
       const toIdx = order.indexOf(tile.filename);
       order.splice(toIdx, 0, draggedFilename);
 
-      // Save new order to server
       try {
         await api(`/api/story/${currentStoryId}/tiles/reorder`, {
           method: 'POST',
@@ -414,7 +454,7 @@
         });
         tilesOrder = order;
         loadTilesList();
-        renderFullStory();
+        renderPreview();
       } catch (e) {
         console.error('reorder failed', e);
       }
@@ -444,8 +484,7 @@
 
     li.appendChild(controls);
 
-    // Click to open tile
-    nameSpan.addEventListener('click', () => loadTile(tile.filename));
+    nameSpan.addEventListener('click', () => openTile(tile.filename));
 
     renameBtn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
@@ -458,13 +497,11 @@
           body: JSON.stringify({ name: newName })
         });
         if (res.filename && res.filename !== tile.filename) {
-          // Update cache and order
           const content = tilesCache[tile.filename] || '';
           delete tilesCache[tile.filename];
           tilesCache[res.filename] = content;
           const idx = tilesOrder.indexOf(tile.filename);
           if (idx !== -1) tilesOrder[idx] = res.filename;
-          // Update current tile reference if needed
           if (currentTileFilename === tile.filename) {
             currentTileFilename = res.filename;
             updateBreadcrumb();
@@ -484,11 +521,10 @@
       try {
         const resp = await fetch(`/api/story/${currentStoryId}/tiles/${tile.filename}`, { method: 'DELETE' });
         if (!resp.ok) throw new Error('delete tile failed');
-        // Update cache and order
         delete tilesCache[tile.filename];
         tilesOrder = tilesOrder.filter(f => f !== tile.filename);
-        // If the deleted tile was open, clear editor
-        if (currentTileFilename === tile.filename) {
+        if (editMode === 'tile' && currentTileFilename === tile.filename) {
+          editMode = null;
           currentTileFilename = null;
           editor.value = '';
           editor.disabled = true;
@@ -497,7 +533,7 @@
           updateBreadcrumb();
         }
         loadTilesList();
-        renderFullStory();
+        renderPreview();
       } catch (e) {
         console.error('delete tile failed', e);
         alert('Delete tile failed');
@@ -507,9 +543,11 @@
     return li;
   }
 
-  function loadTile(filename) {
+  function openTile(filename) {
     if (!currentStoryId) return;
+    editMode = 'tile';
     currentTileFilename = filename;
+    currentHighlightFilename = null;
     const content = tilesCache[filename] || '';
     if (editor) {
       editor.disabled = false;
@@ -519,7 +557,8 @@
     updateStats(editor.value);
     updateBreadcrumb();
     loadTilesList();
-    renderFullStory();
+    loadHighlightsList();
+    renderPreview();
     try { editor.focus(); } catch (e) {}
   }
 
@@ -532,11 +571,10 @@
         body: JSON.stringify({})
       });
       if (res && res.filename) {
-        // Update local state
         tilesOrder.push(res.filename);
         tilesCache[res.filename] = '';
         loadTilesList();
-        loadTile(res.filename);
+        openTile(res.filename);
       }
     } catch (e) {
       console.error('add tile failed', e);
@@ -544,10 +582,165 @@
     }
   }
 
+  // --- Binder: highlights list ---
+
+  function loadHighlightsList() {
+    binderHighlightsList.innerHTML = '';
+    if (!currentStoryId) return;
+    if (highlightsList.length === 0) {
+      const placeholder = document.createElement('li');
+      placeholder.className = 'binder-placeholder';
+      placeholder.textContent = 'No highlights yet';
+      binderHighlightsList.appendChild(placeholder);
+      return;
+    }
+    highlightsList.forEach(hl => {
+      binderHighlightsList.appendChild(buildHighlightItem(hl));
+    });
+  }
+
+  function buildHighlightItem(hl) {
+    const li = document.createElement('li');
+    li.className = 'tile-item';
+    li.dataset.filename = hl.filename;
+    if (editMode === 'highlight' && hl.filename === currentHighlightFilename) {
+      li.classList.add('active');
+    }
+    // No drag-and-drop for highlights
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'tile-name';
+    nameSpan.textContent = hl.name;
+    nameSpan.title = hl.filename;
+    nameSpan.style.cursor = 'pointer';
+    li.appendChild(nameSpan);
+
+    const controls = document.createElement('div');
+    controls.className = 'tile-controls';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'btn-tile-rename';
+    renameBtn.textContent = 'Ren';
+    renameBtn.title = 'Rename highlight';
+    controls.appendChild(renameBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-tile-delete';
+    deleteBtn.textContent = 'Del';
+    deleteBtn.title = 'Delete highlight';
+    controls.appendChild(deleteBtn);
+
+    li.appendChild(controls);
+
+    nameSpan.addEventListener('click', () => openHighlight(hl.filename));
+
+    renameBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const newName = prompt('New highlight name', hl.name);
+      if (!newName) return;
+      try {
+        const res = await api(`/api/story/${currentStoryId}/highlights/${hl.filename}/rename`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName })
+        });
+        if (res.filename && res.filename !== hl.filename) {
+          if (editMode === 'highlight' && currentHighlightFilename === hl.filename) {
+            currentHighlightFilename = res.filename;
+            updateBreadcrumb();
+          }
+        }
+        // Re-fetch highlights (order may change due to alphabetical sort)
+        await fetchHighlightsList();
+        loadHighlightsList();
+      } catch (e) {
+        console.error('rename highlight failed', e);
+        alert('Rename highlight failed');
+      }
+    });
+
+    deleteBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const ok = confirm(`Delete highlight "${hl.name}"? This cannot be undone.`);
+      if (!ok) return;
+      try {
+        const resp = await fetch(`/api/story/${currentStoryId}/highlights/${hl.filename}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error('delete highlight failed');
+        if (editMode === 'highlight' && currentHighlightFilename === hl.filename) {
+          editMode = null;
+          currentHighlightFilename = null;
+          editor.value = '';
+          editor.disabled = true;
+          editor.placeholder = 'select a tile or highlight to edit';
+          updateStats('');
+          updateBreadcrumb();
+          renderPreview();
+        }
+        await fetchHighlightsList();
+        loadHighlightsList();
+      } catch (e) {
+        console.error('delete highlight failed', e);
+        alert('Delete highlight failed');
+      }
+    });
+
+    return li;
+  }
+
+  async function openHighlight(filename) {
+    if (!currentStoryId) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/highlights/${filename}`);
+      editMode = 'highlight';
+      currentHighlightFilename = filename;
+      currentTileFilename = null;
+      if (editor) {
+        editor.disabled = false;
+        editor.value = res.content || '';
+        editor.placeholder = 'Start typing markdown...';
+      }
+      updateStats(editor.value);
+      updateBreadcrumb();
+      loadTilesList();
+      loadHighlightsList();
+      renderPreview();
+      try { editor.focus(); } catch (e) {}
+    } catch (e) {
+      console.error('load highlight failed', e);
+      alert('Failed to load highlight');
+    }
+  }
+
+  async function addHighlight() {
+    if (!currentStoryId) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/highlights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (res && res.filename) {
+        await fetchHighlightsList();
+        loadHighlightsList();
+        openHighlight(res.filename);
+      }
+    } catch (e) {
+      console.error('add highlight failed', e);
+      alert('Add highlight failed');
+    }
+  }
+
+  // --- Breadcrumb ---
+
   function updateBreadcrumb() {
     const storyLabel = currentStoryName || '';
-    const tileLabel = currentTileFilename ? currentTileFilename.replace(/\.md$/, '') : '';
-    const breadcrumb = tileLabel ? `${storyLabel} \u203A ${tileLabel}` : storyLabel;
+    let itemLabel = '';
+    if (editMode === 'tile' && currentTileFilename) {
+      itemLabel = currentTileFilename.replace(/\.md$/, '');
+    } else if (editMode === 'highlight' && currentHighlightFilename) {
+      itemLabel = currentHighlightFilename.replace(/\.md$/, '');
+    }
+    const breadcrumb = itemLabel ? `${storyLabel} \u203A ${itemLabel}` : storyLabel;
     if (openStoryEl) openStoryEl.textContent = breadcrumb;
     if (currentName) currentName.textContent = breadcrumb;
   }
@@ -555,15 +748,27 @@
   // --- Autosave ---
 
   async function saveCurrent() {
-    if (!currentStoryId || !currentTileFilename) return;
-    try {
-      await fetch(`/api/story/${currentStoryId}/tiles/${currentTileFilename}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editor.value })
-      });
-    } catch (e) {
-      console.error('autosave failed', e);
+    if (!currentStoryId) return;
+    if (editMode === 'tile' && currentTileFilename) {
+      try {
+        await fetch(`/api/story/${currentStoryId}/tiles/${currentTileFilename}/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: editor.value })
+        });
+      } catch (e) {
+        console.error('autosave failed', e);
+      }
+    } else if (editMode === 'highlight' && currentHighlightFilename) {
+      try {
+        await fetch(`/api/story/${currentStoryId}/highlights/${currentHighlightFilename}/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: editor.value })
+        });
+      } catch (e) {
+        console.error('autosave failed', e);
+      }
     }
   }
 
@@ -573,26 +778,21 @@
     const text = editor.value;
     updateStats(text);
 
-    // Update the cache for the current tile
-    if (currentTileFilename) {
+    // Update cache
+    if (editMode === 'tile' && currentTileFilename) {
       tilesCache[currentTileFilename] = text;
     }
 
-    // Render full story with scroll to cursor
-    renderFullStory();
-
-    // Autosave
+    renderPreview();
     saveCurrent();
   });
 
-  // Also update preview scroll on cursor movement (click, arrow keys)
   editor.addEventListener('click', () => {
-    if (currentTileFilename) renderFullStory();
+    if (editMode) renderPreview();
   });
   editor.addEventListener('keyup', (ev) => {
-    // Re-scroll on navigation keys
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown'].includes(ev.key)) {
-      if (currentTileFilename) renderFullStory();
+      if (editMode) renderPreview();
     }
   });
 
@@ -603,11 +803,12 @@
     loadList();
   });
   btnAddTile.addEventListener('click', addTile);
+  btnAddHighlight.addEventListener('click', addHighlight);
 
   // --- Initial load ---
   showStoryList();
   loadList();
 
   // Expose for debugging
-  window._neo = { loadList, loadTile, saveCurrent, renderFullStory, showBinder, showStoryList };
+  window._neo = { loadList, openTile, openHighlight, saveCurrent, renderPreview, showBinder, showStoryList };
 })();

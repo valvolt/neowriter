@@ -412,6 +412,181 @@ app.post('/api/story/:id/tiles/reorder', async (req, res) => {
   }
 });
 
+// --- Highlight endpoints ---
+
+// List highlights for a story (sorted alphabetically)
+app.get('/api/story/:id/highlights', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const highlightsDir = path.join(storyDir(id), 'highlights');
+    let files = [];
+    try {
+      files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
+    } catch (e) {
+      files = [];
+    }
+    // Sort alphabetically
+    files.sort((a, b) => a.localeCompare(b));
+    const highlights = files.map(f => ({ filename: f, name: f.replace(/\.md$/, '') }));
+    res.json(highlights);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to list highlights' });
+  }
+});
+
+// Create a new highlight (auto-named highlight-N)
+app.post('/api/story/:id/highlights', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const highlightsDir = path.join(storyDir(id), 'highlights');
+    await fs.mkdir(highlightsDir, { recursive: true });
+
+    let files = [];
+    try {
+      files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
+    } catch (e) {
+      files = [];
+    }
+    const existingSet = new Set(files);
+    let num = files.length + 1;
+    while (existingSet.has(`highlight-${num}.md`)) {
+      num++;
+    }
+    const filename = `highlight-${num}.md`;
+    const filePath = path.join(highlightsDir, filename);
+
+    await fs.writeFile(filePath, '', 'utf8');
+    res.json({ filename, name: `highlight-${num}` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to create highlight' });
+  }
+});
+
+// Get highlight content
+app.get('/api/story/:id/highlights/:filename', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const filePath = path.join(storyDir(id), 'highlights', filename);
+    let content = '';
+    try {
+      content = await fs.readFile(filePath, 'utf8');
+    } catch (e) {
+      return res.status(404).json({ error: 'highlight not found' });
+    }
+    res.json({ filename, name: filename.replace(/\.md$/, ''), content });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to read highlight' });
+  }
+});
+
+// Save highlight content
+app.post('/api/story/:id/highlights/:filename/save', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  if (!req.body || typeof req.body.content !== 'string') {
+    return res.status(400).json({ error: 'content required' });
+  }
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const filePath = path.join(storyDir(id), 'highlights', filename);
+    try {
+      await fs.access(filePath);
+    } catch (e) {
+      return res.status(404).json({ error: 'highlight not found' });
+    }
+    await fs.writeFile(filePath, req.body.content, 'utf8');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to save highlight' });
+  }
+});
+
+// Rename highlight
+app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  const newName = (req.body && req.body.name) ? String(req.body.name) : undefined;
+  if (!newName) return res.status(400).json({ error: 'name required' });
+
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const highlightsDir = path.join(storyDir(id), 'highlights');
+    const oldPath = path.join(highlightsDir, filename);
+    try {
+      await fs.access(oldPath);
+    } catch (e) {
+      return res.status(404).json({ error: 'highlight not found' });
+    }
+
+    let newFilename = sanitizeFilename(newName) + '.md';
+    if (newFilename !== filename) {
+      let newPath = path.join(highlightsDir, newFilename);
+      let counter = 1;
+      while (true) {
+        try {
+          await fs.access(newPath);
+          counter++;
+          newFilename = sanitizeFilename(newName) + '-' + counter + '.md';
+          newPath = path.join(highlightsDir, newFilename);
+        } catch (e) {
+          break;
+        }
+      }
+      await fs.rename(oldPath, newPath);
+    }
+
+    res.json({ filename: newFilename, name: newName });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to rename highlight' });
+  }
+});
+
+// Delete highlight
+app.delete('/api/story/:id/highlights/:filename', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const filePath = path.join(storyDir(id), 'highlights', filename);
+    try {
+      await fs.unlink(filePath);
+    } catch (e) {
+      return res.status(404).json({ error: 'highlight not found' });
+    }
+    res.json({ ok: true, filename });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to delete highlight' });
+  }
+});
+
 // Fallback to index.html for SPA navigation
 app.get('*', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
