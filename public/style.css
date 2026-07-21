@@ -386,6 +386,37 @@ footer{
   margin-right:4px;
 }
 
+/* Highlight hover tooltip */
+.highlight-tooltip{
+  position:fixed;
+  z-index:10001;
+  background:#fff;
+  border:1px solid #e0e0e3;
+  border-radius:8px;
+  box-shadow:0 6px 24px rgba(0,0,0,0.14);
+  padding:10px 14px;
+  max-width:300px;
+  min-width:160px;
+  pointer-events:none;
+}
+.highlight-tooltip-text{
+  font-size:12px;
+  line-height:1.5;
+  color:#333;
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:80px;
+  overflow:hidden;
+}
+.highlight-tooltip-img{
+  display:block;
+  max-width:100%;
+  max-height:120px;
+  margin-top:8px;
+  border-radius:4px;
+  object-fit:contain;
+}
+
 /* Responsive */
 @media (max-width:900px){
   main{flex-direction:column; padding:8px;}

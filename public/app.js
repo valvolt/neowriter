@@ -224,12 +224,23 @@
 
   // --- Highlight words in preview ---
 
+  // Build a map from lowercase highlight name to filename for quick lookup
+  function getHighlightNameToFilenameMap() {
+    const map = {};
+    highlightsList.forEach(hl => {
+      if (hl.name) map[hl.name.toLowerCase()] = hl.filename;
+    });
+    return map;
+  }
+
   function highlightWordsInPreview() {
     if (!highlightsList || highlightsList.length === 0) return;
     // Sort highlight names by length descending to match longer names first
     const names = highlightsList.map(hl => hl.name).filter(n => n && n.trim());
     names.sort((a, b) => b.length - a.length);
     if (names.length === 0) return;
+
+    const nameToFilename = getHighlightNameToFilenameMap();
 
     // Build a combined regex for all highlight names (case-insensitive)
     const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -262,10 +273,12 @@
         if (match.index > lastIndex) {
           frag.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
         }
-        // Add highlighted match
+        // Add highlighted mark with data attribute for tooltip
         const mark = document.createElement('mark');
         mark.className = 'highlight-mark';
         mark.textContent = match[0];
+        const filename = nameToFilename[match[0].toLowerCase()];
+        if (filename) mark.dataset.highlightFilename = filename;
         frag.appendChild(mark);
         lastIndex = combinedRegex.lastIndex;
       }
@@ -276,6 +289,133 @@
       parent.replaceChild(frag, textNode);
     });
   }
+
+  // --- Highlight hover tooltip ---
+
+  const highlightTooltip = $('highlight-tooltip');
+  const highlightTooltipText = $('highlight-tooltip-text');
+  const highlightTooltipImg = $('highlight-tooltip-img');
+  const highlightsContentCache = {};
+
+  function extractHighlightPreview(content) {
+    // Extract first ~3 lines of plain text (strip markdown syntax)
+    const lines = (content || '').split('\n').filter(l => l.trim());
+    let textLines = [];
+    let firstImage = null;
+
+    for (const line of lines) {
+      // Check for image
+      const imgMatch = line.match(/!\[([^\]]*)\]\(([^)]+)\)/);
+      if (imgMatch && !firstImage) {
+        firstImage = imgMatch[2];
+        continue; // don't include image markdown in text preview
+      }
+      if (textLines.length < 3) {
+        // Strip basic markdown formatting
+        let clean = line
+          .replace(/^#{1,6}\s+/, '') // headings
+          .replace(/\*\*([^*]+)\*\*/g, '$1') // bold
+          .replace(/\*([^*]+)\*/g, '$1') // italic
+          .replace(/__([^_]+)__/g, '$1') // bold
+          .replace(/_([^_]+)_/g, '$1') // italic
+          .replace(/`([^`]+)`/g, '$1') // inline code
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
+          .replace(/^[-*+]\s+/, '') // list items
+          .replace(/^\d+\.\s+/, ''); // numbered list
+        if (clean.trim()) textLines.push(clean.trim());
+      }
+      if (textLines.length >= 3 && firstImage) break;
+    }
+
+    // Also scan remaining lines for first image if not found yet
+    if (!firstImage) {
+      for (const line of lines) {
+        const imgMatch = line.match(/!\[([^\]]*)\]\(([^)]+)\)/);
+        if (imgMatch) {
+          firstImage = imgMatch[2];
+          break;
+        }
+      }
+    }
+
+    return {
+      text: textLines.join('\n') || '(empty)',
+      image: firstImage
+    };
+  }
+
+  async function fetchHighlightContent(filename) {
+    if (highlightsContentCache[filename] !== undefined) {
+      return highlightsContentCache[filename];
+    }
+    if (!currentStoryId) return '';
+    try {
+      const res = await api(`/api/story/${currentStoryId}/highlights/${filename}`);
+      const content = res.content || '';
+      highlightsContentCache[filename] = content;
+      return content;
+    } catch (e) {
+      highlightsContentCache[filename] = '';
+      return '';
+    }
+  }
+
+  function showHighlightTooltip(mark, x, y) {
+    const filename = mark.dataset.highlightFilename;
+    if (!filename) return;
+
+    // Position tooltip near the cursor
+    const tooltipX = Math.min(x + 12, window.innerWidth - 320);
+    const tooltipY = Math.min(y + 16, window.innerHeight - 200);
+    highlightTooltip.style.left = tooltipX + 'px';
+    highlightTooltip.style.top = tooltipY + 'px';
+
+    // Show loading state
+    highlightTooltipText.textContent = '...';
+    highlightTooltipImg.style.display = 'none';
+    highlightTooltip.style.display = '';
+
+    // Fetch and display content
+    fetchHighlightContent(filename).then(content => {
+      // Check if tooltip is still visible (user might have moved away)
+      if (highlightTooltip.style.display === 'none') return;
+
+      const { text, image } = extractHighlightPreview(content);
+      highlightTooltipText.textContent = text;
+
+      if (image) {
+        highlightTooltipImg.src = image;
+        highlightTooltipImg.style.display = '';
+      } else {
+        highlightTooltipImg.style.display = 'none';
+      }
+    });
+  }
+
+  function hideHighlightTooltip() {
+    highlightTooltip.style.display = 'none';
+    highlightTooltipImg.src = '';
+  }
+
+  // Event delegation for highlight mark hover
+  preview.addEventListener('mouseenter', (ev) => {
+    const mark = ev.target.closest('.highlight-mark');
+    if (!mark || !mark.dataset.highlightFilename) return;
+    const rect = mark.getBoundingClientRect();
+    showHighlightTooltip(mark, rect.left, rect.bottom);
+  }, true);
+
+  preview.addEventListener('mouseleave', (ev) => {
+    const mark = ev.target.closest('.highlight-mark');
+    if (!mark) return;
+    // Check if we're leaving the mark element
+    const related = ev.relatedTarget;
+    if (related && mark.contains(related)) return;
+    hideHighlightTooltip();
+  }, true);
+
+  // Also hide tooltip on scroll
+  preview.addEventListener('scroll', hideHighlightTooltip);
 
   // --- Render dispatcher ---
 
@@ -819,6 +959,8 @@
       editMode = 'highlight';
       currentHighlightFilename = filename;
       currentTileFilename = null;
+      // Update tooltip cache with fresh content
+      highlightsContentCache[filename] = res.content || '';
       if (editor) {
         editor.disabled = false;
         editor.value = res.content || '';
@@ -907,6 +1049,11 @@
     if (editMode === 'tile' && currentTileFilename) {
       tilesCache[currentTileFilename] = text;
       loadHighlightsList();
+    }
+
+    // Update tooltip cache when editing a highlight
+    if (editMode === 'highlight' && currentHighlightFilename) {
+      highlightsContentCache[currentHighlightFilename] = text;
     }
 
     renderPreview();
