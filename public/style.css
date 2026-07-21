@@ -357,6 +357,35 @@ footer{
   pointer-events:none;
 }
 
+/* Highlight marks in preview */
+.highlight-mark{
+  background:#fff176;
+  padding:0 2px;
+  border-radius:2px;
+}
+
+/* Highlight occurrence badge */
+.highlight-count{
+  font-size:10px;
+  background:#e8e8eb;
+  color:#555;
+  padding:1px 5px;
+  border-radius:8px;
+  margin-left:6px;
+  white-space:nowrap;
+}
+
+/* Highlights sort selector */
+.highlights-sort{
+  font-size:10px;
+  padding:2px 4px;
+  border:1px solid #ddd;
+  border-radius:3px;
+  background:#fafafa;
+  cursor:pointer;
+  margin-right:4px;
+}
+
 /* Responsive */
 @media (max-width:900px){
   main{flex-direction:column; padding:8px;}

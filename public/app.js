@@ -59,6 +59,10 @@
   // Highlights list (sorted alphabetically, fetched from server)
   let highlightsList = [];
 
+  // Highlights sort mode: 'alpha', 'most', 'least'
+  let highlightsSortMode = 'alpha';
+  const highlightsSortEl = $('highlights-sort');
+
   // --- Utilities ---
 
   function updateStats(text) {
@@ -218,6 +222,61 @@
     renderMarkdownToPreview(text, fraction);
   }
 
+  // --- Highlight words in preview ---
+
+  function highlightWordsInPreview() {
+    if (!highlightsList || highlightsList.length === 0) return;
+    // Sort highlight names by length descending to match longer names first
+    const names = highlightsList.map(hl => hl.name).filter(n => n && n.trim());
+    names.sort((a, b) => b.length - a.length);
+    if (names.length === 0) return;
+
+    // Build a combined regex for all highlight names (case-insensitive)
+    const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const combinedRegex = new RegExp(`(${escaped.join('|')})`, 'gi');
+
+    // Walk text nodes in the preview, skip code/pre/mark elements
+    const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, null, false);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      textNodes.push(node);
+    }
+
+    textNodes.forEach(textNode => {
+      if (!textNode.parentElement) return;
+      const parent = textNode.parentElement;
+      if (parent.closest('code, pre, mark, .mermaid')) return;
+
+      const text = textNode.nodeValue;
+      if (!combinedRegex.test(text)) return;
+      combinedRegex.lastIndex = 0; // reset regex state
+
+      // Split text by matches and create fragment
+      const frag = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match;
+      combinedRegex.lastIndex = 0;
+      while ((match = combinedRegex.exec(text)) !== null) {
+        // Add text before match
+        if (match.index > lastIndex) {
+          frag.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+        }
+        // Add highlighted match
+        const mark = document.createElement('mark');
+        mark.className = 'highlight-mark';
+        mark.textContent = match[0];
+        frag.appendChild(mark);
+        lastIndex = combinedRegex.lastIndex;
+      }
+      // Add remaining text
+      if (lastIndex < text.length) {
+        frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+      }
+      parent.replaceChild(frag, textNode);
+    });
+  }
+
   // --- Render dispatcher ---
 
   function renderPreview() {
@@ -233,6 +292,8 @@
         preview.innerHTML = '';
       }
     }
+    // Apply highlight word marking after rendering
+    highlightWordsInPreview();
   }
 
   // Fetch all tile contents for the current story
@@ -612,6 +673,33 @@
 
   // --- Binder: highlights list ---
 
+  // Count occurrences of a highlight name across all tiles
+  function countHighlightOccurrences(name) {
+    if (!name) return 0;
+    const fullText = tilesOrder.map(f => tilesCache[f] || '').join('\n\n');
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'gi');
+    const matches = fullText.match(regex);
+    return matches ? matches.length : 0;
+  }
+
+  // Get sorted highlights list based on current sort mode
+  function getSortedHighlights() {
+    const items = highlightsList.map(hl => ({
+      ...hl,
+      count: countHighlightOccurrences(hl.name)
+    }));
+    if (highlightsSortMode === 'most') {
+      items.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    } else if (highlightsSortMode === 'least') {
+      items.sort((a, b) => a.count - b.count || a.name.localeCompare(b.name));
+    } else {
+      // 'alpha' — default
+      items.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return items;
+  }
+
   function loadHighlightsList() {
     binderHighlightsList.innerHTML = '';
     if (!currentStoryId) return;
@@ -622,7 +710,8 @@
       binderHighlightsList.appendChild(placeholder);
       return;
     }
-    highlightsList.forEach(hl => {
+    const sorted = getSortedHighlights();
+    sorted.forEach(hl => {
       binderHighlightsList.appendChild(buildHighlightItem(hl));
     });
   }
@@ -642,6 +731,14 @@
     nameSpan.title = hl.filename;
     nameSpan.style.cursor = 'pointer';
     li.appendChild(nameSpan);
+
+    // Occurrence count badge
+    const countSpan = document.createElement('span');
+    countSpan.className = 'highlight-count';
+    const count = typeof hl.count === 'number' ? hl.count : countHighlightOccurrences(hl.name);
+    countSpan.textContent = count;
+    countSpan.title = `${count} occurrence${count !== 1 ? 's' : ''} in tiles`;
+    li.appendChild(countSpan);
 
     const controls = document.createElement('div');
     controls.className = 'tile-controls';
@@ -806,9 +903,10 @@
     const text = editor.value;
     updateStats(text);
 
-    // Update cache
+    // Update cache and refresh highlights counts when editing tiles
     if (editMode === 'tile' && currentTileFilename) {
       tilesCache[currentTileFilename] = text;
+      loadHighlightsList();
     }
 
     renderPreview();
@@ -832,6 +930,14 @@
   });
   btnAddTile.addEventListener('click', addTile);
   btnAddHighlight.addEventListener('click', addHighlight);
+
+  // Highlights sort selector
+  if (highlightsSortEl) {
+    highlightsSortEl.addEventListener('change', () => {
+      highlightsSortMode = highlightsSortEl.value;
+      loadHighlightsList();
+    });
+  }
 
   // --- Context menu ---
 
