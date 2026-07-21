@@ -850,6 +850,16 @@
   editor.addEventListener('contextmenu', (ev) => {
     if (editor.disabled) return; // don't show if no file open
     ev.preventDefault();
+    // Enable/disable menu items based on selection
+    const hasSelection = editor.selectionStart !== editor.selectionEnd;
+    contextMenu.querySelectorAll('li').forEach(li => {
+      const action = li.dataset.action;
+      if (action === 'insert-table' || action === 'insert-picture') {
+        li.classList.toggle('disabled', hasSelection);
+      } else if (action === 'insert-link' || action === 'create-highlight') {
+        li.classList.toggle('disabled', !hasSelection);
+      }
+    });
     showContextMenu(ev.clientX, ev.clientY);
   });
 
@@ -864,7 +874,10 @@
   });
 
   contextMenu.addEventListener('click', (ev) => {
-    const action = ev.target.dataset.action;
+    const li = ev.target.closest('li');
+    if (!li) return;
+    if (li.classList.contains('disabled')) return; // don't act on disabled items
+    const action = li.dataset.action;
     if (!action) return;
     hideContextMenu();
 
@@ -874,6 +887,8 @@
       insertLink();
     } else if (action === 'insert-picture') {
       insertPicture();
+    } else if (action === 'create-highlight') {
+      createHighlightFromSelection();
     }
   });
 
@@ -895,18 +910,50 @@
     editor.focus();
   }
 
+  // --- Create Highlight from selection ---
+
+  async function createHighlightFromSelection() {
+    if (!currentStoryId) return;
+    const selectedText = editor.value.substring(editor.selectionStart, editor.selectionEnd);
+    const name = selectedText.trim() || 'New Highlight';
+
+    try {
+      // Create highlight with a sanitized name based on selected text
+      const res = await api(`/api/story/${currentStoryId}/highlights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (res && res.filename) {
+        // Rename it to the selected text
+        const renameRes = await api(`/api/story/${currentStoryId}/highlights/${res.filename}/rename`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        const finalFilename = (renameRes && renameRes.filename) ? renameRes.filename : res.filename;
+        await fetchHighlightsList();
+        loadHighlightsList();
+        openHighlight(finalFilename);
+      }
+    } catch (e) {
+      console.error('create highlight from selection failed', e);
+      alert('Failed to create highlight');
+    }
+  }
+
   // --- Insert Link ---
 
   function insertLink() {
-    // If text is selected, use it as default link text
+    // Use selected text as the link text (read-only — user only provides URL)
     const selectedText = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-    const linkText = prompt('Link text:', selectedText || '');
-    if (linkText === null) return;
-    const linkUrl = prompt('URL:', 'https://');
+    const linkText = selectedText || '';
+    if (!linkText) return; // should not happen since menu item is disabled without selection
+    const linkUrl = prompt(`URL for "${linkText}":`, 'https://');
     if (!linkUrl) return;
 
     const md = `[${linkText}](${linkUrl})`;
-    // Replace selection (or insert at cursor if no selection)
+    // Replace selection with the link
     const start = editor.selectionStart;
     const end = editor.selectionEnd;
     const before = editor.value.substring(0, start);

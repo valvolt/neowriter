@@ -351,6 +351,11 @@ footer{
   background:#f0f4ff;
   color:var(--accent);
 }
+.context-menu li.disabled{
+  color:#bbb;
+  cursor:default;
+  pointer-events:none;
+}
 
 /* Responsive */
 @media (max-width:900px){
