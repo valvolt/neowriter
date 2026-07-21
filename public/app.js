@@ -138,7 +138,7 @@
     }
   }
 
-  // Configure marked: open links in new tab + sanitize raw HTML (prevent XSS)
+  // Configure marked: open links in new tab + sanitize raw HTML
   if (typeof marked !== 'undefined') {
     marked.use({
       renderer: {
@@ -158,9 +158,16 @@
     });
   }
 
+  // Pre-process markdown: convert lines starting with "- " to em-dash dialogue
+  // (prevents marked from interpreting them as unordered list items)
+  function preprocessMarkdown(text) {
+    return text.replace(/^- /gm, '\u2014 ');
+  }
+
   // Render markdown text into the preview pane with optional scroll fraction
   function renderMarkdownToPreview(text, scrollFraction) {
-    const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(text || '') : (text || '');
+    const processed = preprocessMarkdown(text || '');
+    const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(processed) : (processed);
     const container = document.createElement('div');
     container.innerHTML = html;
     replaceArrowsInContainer(container);
