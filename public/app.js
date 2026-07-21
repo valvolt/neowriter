@@ -63,6 +63,10 @@
   let highlightsSortMode = 'alpha';
   const highlightsSortEl = $('highlights-sort');
 
+  // Toggle for highlight rendering in preview
+  let highlightsRenderEnabled = true;
+  const toggleHighlightsEl = $('toggle-highlights');
+
   // --- Utilities ---
 
   function updateStats(text) {
@@ -561,7 +565,9 @@
     }
     // Apply keyword pill rendering and highlight word marking after rendering
     renderKeywordsInPreview();
-    highlightWordsInPreview();
+    if (highlightsRenderEnabled) {
+      highlightWordsInPreview();
+    }
   }
 
   // Fetch all tile contents for the current story
@@ -1230,6 +1236,17 @@
     highlightsSortEl.addEventListener('change', () => {
       highlightsSortMode = highlightsSortEl.value;
       loadHighlightsList();
+    });
+  }
+
+  // Highlights render toggle (button)
+  if (toggleHighlightsEl) {
+    toggleHighlightsEl.addEventListener('click', () => {
+      highlightsRenderEnabled = !highlightsRenderEnabled;
+      toggleHighlightsEl.textContent = highlightsRenderEnabled ? 'Highlights \u2713' : 'Highlights \u2717';
+      toggleHighlightsEl.style.background = highlightsRenderEnabled ? '#e3ecff' : '#f5f5f5';
+      toggleHighlightsEl.style.color = highlightsRenderEnabled ? '#2b7cff' : '#888';
+      renderPreview();
     });
   }
 
