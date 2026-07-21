@@ -25,7 +25,6 @@
   const preview = $('preview');
   const stats = $('stats');
   const btnNew = $('btn-new');
-  const btnRefresh = $('btn-refresh');
   const currentName = $('current-name');
   const openStoryEl = $('open-story-name');
   const userInfoEl = $('user-info');
@@ -1253,7 +1252,6 @@
   });
 
   btnNew.addEventListener('click', createStory);
-  btnRefresh.addEventListener('click', loadList);
   btnBack.addEventListener('click', () => {
     showStoryList();
     loadList();
