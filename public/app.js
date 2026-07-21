@@ -1112,6 +1112,7 @@
       } else if (action === 'insert-link' || action === 'create-highlight') {
         li.classList.toggle('disabled', !hasSelection);
       }
+      // insert-keyword is always enabled
     });
     showContextMenu(ev.clientX, ev.clientY);
   });
@@ -1140,6 +1141,8 @@
       insertLink();
     } else if (action === 'insert-picture') {
       insertPicture();
+    } else if (action === 'insert-keyword') {
+      insertKeyword();
     } else if (action === 'create-highlight') {
       createHighlightFromSelection();
     }
@@ -1159,6 +1162,41 @@
     editor.selectionEnd = newPos;
 
     // Trigger update
+    editor.dispatchEvent(new Event('input'));
+    editor.focus();
+  }
+
+  // --- Insert Keyword ---
+
+  function insertKeyword() {
+    const hasSelection = editor.selectionStart !== editor.selectionEnd;
+
+    if (hasSelection) {
+      // Insert ‡ before the selected text
+      const pos = editor.selectionStart;
+      const before = editor.value.substring(0, pos);
+      const after = editor.value.substring(pos);
+      editor.value = before + '\u2021' + after;
+
+      // Place cursor after the ‡ and before the original selection
+      const newPos = pos + 1;
+      editor.selectionStart = newPos;
+      editor.selectionEnd = newPos + (editor.selectionEnd - editor.selectionStart);
+    } else {
+      // Ask for text, then insert ‡ + text at cursor
+      const keyword = prompt('Keyword text:');
+      if (!keyword) return;
+      const pos = editor.selectionStart;
+      const before = editor.value.substring(0, pos);
+      const after = editor.value.substring(pos);
+      const insertion = '\u2021' + keyword;
+      editor.value = before + insertion + after;
+
+      const newPos = pos + insertion.length;
+      editor.selectionStart = newPos;
+      editor.selectionEnd = newPos;
+    }
+
     editor.dispatchEvent(new Event('input'));
     editor.focus();
   }
