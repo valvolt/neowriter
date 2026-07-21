@@ -160,8 +160,9 @@
 
   // Pre-process markdown: convert lines starting with "- " to em-dash dialogue
   // (prevents marked from interpreting them as unordered list items)
+  // Exception: task items "- [ ]", "- [x]", "- [X]" are left intact for checkbox rendering
   function preprocessMarkdown(text) {
-    return text.replace(/^- /gm, '\u2014 ');
+    return text.replace(/^- (?!\[[ xX]\])/gm, '\u2014 ');
   }
 
   // Render markdown text into the preview pane with optional scroll fraction

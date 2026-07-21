@@ -247,6 +247,10 @@ main{
 #preview pre{background:#0b1220;color:#e6eef8;padding:10px;border-radius:6px;overflow:auto}
 #preview code{background:#f3f4f6;padding:2px 4px;border-radius:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:13px}
 #preview img{max-width:100%;height:auto}
+/* Task list items: hide bullet markers, show only checkbox */
+#preview ul li input[type="checkbox"]{margin-right:6px;}
+#preview ul:has(li > input[type="checkbox"]){list-style:none;padding-left:0;}
+#preview li:has(> input[type="checkbox"]){list-style:none;}
 
 /* Footer */
 footer{
