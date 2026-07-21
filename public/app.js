@@ -138,15 +138,24 @@
     }
   }
 
-  // Configure marked to open links in new tab
+  // Configure marked: open links in new tab + sanitize raw HTML (prevent XSS)
   if (typeof marked !== 'undefined') {
-    const renderer = new marked.Renderer();
-    const originalLink = renderer.link.bind(renderer);
-    renderer.link = function(href, title, text) {
-      const html = originalLink(href, title, text);
-      return html.replace('<a ', '<a target="_blank" rel="noopener noreferrer" ');
-    };
-    marked.setOptions({ renderer });
+    marked.use({
+      renderer: {
+        // Escape raw HTML blocks/inline so they display as text, not rendered HTML
+        html(token) {
+          const raw = typeof token === 'string' ? token : (token.raw || token.text || '');
+          return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        },
+        // Open all links in new tab
+        link(token) {
+          const href = typeof token === 'string' ? token : (token.href || '');
+          const title = (typeof token === 'object' && token.title) ? ` title="${token.title}"` : '';
+          const text = (typeof token === 'object' && token.text) ? token.text : href;
+          return `<a href="${href}"${title} target="_blank" rel="noopener noreferrer">${text}</a>`;
+        }
+      }
+    });
   }
 
   // Render markdown text into the preview pane with optional scroll fraction
