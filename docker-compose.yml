@@ -5,7 +5,7 @@ services:
     build: .
     container_name: neo-writer
     ports:
-      - "3001:3000"
+      - "3007:3000"
     environment:
       - PORT=3000
     volumes:

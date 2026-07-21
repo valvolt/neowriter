@@ -1,38 +1,63 @@
-Neo Writer — Supported Markdown Features
+# Neo Writer
 
-Neo Writer is a minimal live markdown editor and renderer. The render pane uses the marked library to convert Markdown to HTML. The following markdown features are supported (via marked):
+A distraction-free markdown writing tool with story management, tiles, highlights, keywords, and speech-to-text.
 
-- Headings: #, ## ###, etc.
-- Emphasis: *italic*, **bold**, ***bold italic***
-- Blockquotes: > quoted text
-- Lists:
-  - Unordered lists using -, *, +
-  - Ordered lists using 1., 2., 3.
-  - Nested lists
-- Code:
-  - Inline code with backticks:code`
-  - Fenced code blocks with language hinting:
-    ```js
-    console.log("hello");
-    ```
-- Horizontal rules: --- or- Links: [text](https://example.com)
-- Images: ![alt](https://example.com/img.png)
-- Tables: basic GitHub-style tables
-- Line breaks and paragraphs
+## Features
 
-Notes and limitations:
-- Rendering is handled client-side using the marked library loaded from CDN.
-- Syntax highlighting is not bundled by default (can be added later with highlight.js or prism).
-- The preview aims to scroll proportionally with the editor, but exact syncing for complex content may vary.
-- Files are saved on the server as UTF-8 .md files and metadata is stored in data/metadata.json.
+- **Stories & Tiles** — Organize your writing into stories, each containing multiple tiles (chapters/sections) that can be reordered via drag-and-drop
+- **Markdown editing** — Full markdown support with live preview (headings, bold/italic, links, images, tables, code blocks, task lists, mermaid diagrams)
+- **Highlights** — Create character/concept sheets linked to your story; highlight names appear colored in the rendered text with hover tooltips
+- **Keywords** — Tag highlights with `‡keyword` markers; keywords render as colored pills and determine highlight colors in the preview
+- **Speech-to-text** — Dictate text using the browser's SpeechRecognition API with real-time ghost preview and multi-language support
+- **Context menu** — Right-click to insert tables, links, pictures, keywords, or create highlights from selected text
+- **Auto-save** — All changes are saved automatically as you type
+- **Arrow replacement** — `-->`, `<--`, `<-->` are rendered as → ← ↔
+- **Dialogue formatting** — Lines starting with `- ` are rendered as em-dash dialogue
 
-Running locally:
-1. cd writer_v2
-2. npm install
-3. npm start
-Then open http://localhost:3000 in your browser.
+## Running
 
-Project layout:
-- server.js — Express backend serving APIs and static files
-- public/ — frontend static files (index.html, app.js, style.css)
-- data/ — created at runtime; contains UUID.md files and metadata.json
+The recommended way to run Neo Writer is via Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+Then open [http://localhost:3007](http://localhost:3007) in your browser.
+
+Data is persisted in the `./data` directory (mounted as a volume).
+
+## Current limitations
+
+- **Local mode only** — Neo Writer currently runs in local/single-user mode. Multi-user hosted mode is on the TODO list.
+- **No mobile layout** — The UI is designed for desktop browsers. A responsive mobile mode is planned but not yet implemented.
+
+## Project layout
+
+```
+server.js          — Express backend (APIs + static file serving)
+public/
+  index.html       — Main HTML page
+  app.js           — Client-side application logic
+  style.css        — Styles
+docker-compose.yml — Docker Compose configuration
+Dockerfile         — Container build instructions
+data/              — Created at runtime; stores stories, tiles, highlights, pictures
+```
+
+## Markdown support
+
+Rendering is handled client-side using the [marked](https://github.com/markedjs/marked) library:
+
+- Headings (`#`, `##`, `###`, etc.)
+- Emphasis (`*italic*`, `**bold**`, `***bold italic***`)
+- Blockquotes (`> quoted text`)
+- Lists (unordered, ordered, nested, task lists)
+- Code (inline and fenced blocks with language hinting)
+- Tables (GitHub-style)
+- Links and images
+- Horizontal rules
+- Mermaid diagrams (fenced `mermaid` code blocks)
+
+## License
+
+See [LICENSE](LICENSE).
