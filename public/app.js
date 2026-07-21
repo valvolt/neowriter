@@ -1604,6 +1604,145 @@
     pictureInsertPos = null;
   }
 
+  // --- Speech to text ---
+
+  const btnMic = $('btn-mic');
+  const speechLangEl = $('speech-lang');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let speechRecognition = null;
+  let speechActive = false;
+  let speechGhostStart = null; // cursor position where ghost text starts
+  let speechGhostLen = 0; // length of current ghost (interim) text
+
+  // Disable if not supported
+  if (!SpeechRecognition) {
+    if (btnMic) btnMic.disabled = true;
+    if (speechLangEl) speechLangEl.disabled = true;
+  }
+
+  function speechInsertText(text, isFinal) {
+    if (!editor || editor.disabled) return;
+
+    // Remove previous ghost text if any
+    if (speechGhostStart !== null && speechGhostLen > 0) {
+      const val = editor.value;
+      editor.value = val.substring(0, speechGhostStart) + val.substring(speechGhostStart + speechGhostLen);
+      editor.selectionStart = speechGhostStart;
+      editor.selectionEnd = speechGhostStart;
+      speechGhostLen = 0;
+    }
+
+    if (!text) return;
+
+    const pos = speechGhostStart !== null ? speechGhostStart : editor.selectionStart;
+    const before = editor.value.substring(0, pos);
+    const after = editor.value.substring(pos);
+    editor.value = before + text + after;
+
+    if (isFinal) {
+      // Move cursor after the inserted text
+      const newPos = pos + text.length;
+      editor.selectionStart = newPos;
+      editor.selectionEnd = newPos;
+      speechGhostStart = null;
+      speechGhostLen = 0;
+      // Trigger input event for autosave/preview
+      editor.dispatchEvent(new Event('input'));
+    } else {
+      // Ghost text: keep track of position and length
+      speechGhostStart = pos;
+      speechGhostLen = text.length;
+      // Place cursor at end of ghost for visual feedback
+      editor.selectionStart = pos + text.length;
+      editor.selectionEnd = pos + text.length;
+    }
+  }
+
+  function startSpeech() {
+    if (!SpeechRecognition || speechActive) return;
+    speechRecognition = new SpeechRecognition();
+    speechRecognition.lang = speechLangEl ? speechLangEl.value : 'en-US';
+    speechRecognition.continuous = true;
+    speechRecognition.interimResults = true;
+
+    // Save cursor position for ghost insertion
+    speechGhostStart = editor.selectionStart;
+    speechGhostLen = 0;
+
+    speechRecognition.onresult = (event) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      if (finalTranscript) {
+        speechInsertText(finalTranscript, true);
+        // Update ghost start for next phrase
+        speechGhostStart = editor.selectionStart;
+        speechGhostLen = 0;
+      } else if (interimTranscript) {
+        speechInsertText(interimTranscript, false);
+      }
+    };
+
+    speechRecognition.onerror = (event) => {
+      console.warn('Speech recognition error', event.error);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        stopSpeech();
+      }
+    };
+
+    speechRecognition.onend = () => {
+      // If still active (continuous mode may stop unexpectedly), restart
+      if (speechActive) {
+        try { speechRecognition.start(); } catch (e) { stopSpeech(); }
+      }
+    };
+
+    try {
+      speechRecognition.start();
+      speechActive = true;
+      if (btnMic) btnMic.classList.add('active');
+    } catch (e) {
+      console.error('Failed to start speech recognition', e);
+    }
+  }
+
+  function stopSpeech() {
+    speechActive = false;
+    if (speechRecognition) {
+      try { speechRecognition.stop(); } catch (e) {}
+      speechRecognition = null;
+    }
+    if (btnMic) btnMic.classList.remove('active');
+    // Clear any remaining ghost text
+    if (speechGhostStart !== null && speechGhostLen > 0) {
+      const val = editor.value;
+      editor.value = val.substring(0, speechGhostStart) + val.substring(speechGhostStart + speechGhostLen);
+      editor.selectionStart = speechGhostStart;
+      editor.selectionEnd = speechGhostStart;
+    }
+    speechGhostStart = null;
+    speechGhostLen = 0;
+  }
+
+  if (btnMic && SpeechRecognition) {
+    btnMic.addEventListener('click', () => {
+      if (speechActive) {
+        stopSpeech();
+      } else {
+        startSpeech();
+      }
+    });
+  }
+
   // --- Initial load ---
   showStoryList();
   loadList();

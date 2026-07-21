@@ -14,7 +14,21 @@
   <header>
     <h1>Neo Writer</h1>
     <div id="open-story-name" style="display:inline-block; margin-left:16px; font-weight:600;"></div>
-    <button id="toggle-highlights" style="position:absolute; right:200px; top:14px; font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#e3ecff; color:#2b7cff; cursor:pointer; font-weight:500;">Highlights ✓</button>
+    <button id="toggle-highlights" style="position:absolute; right:420px; top:14px; font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#e3ecff; color:#2b7cff; cursor:pointer; font-weight:500;">Highlights ✓</button>
+    <div id="speech-controls" style="position:absolute; right:200px; top:12px; display:inline-flex; align-items:center; gap:4px;">
+      <select id="speech-lang" class="speech-lang" title="Speech language">
+        <option value="en-US">EN-US</option>
+        <option value="en-GB">EN-UK</option>
+        <option value="fr-FR">FR</option>
+        <option value="de-DE">DE</option>
+        <option value="es-ES">ES</option>
+        <option value="it-IT">IT</option>
+        <option value="pt-BR">PT</option>
+        <option value="ja-JP">JA</option>
+        <option value="zh-CN">ZH</option>
+      </select>
+      <button id="btn-mic" class="btn-mic" title="Speech to text">🎤</button>
+    </div>
     <div id="user-info" style="position:absolute; right:16px; top:18px; font-size:0.9rem; color:#333;"></div>
   </header>
 
