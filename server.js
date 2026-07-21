@@ -15,7 +15,7 @@ const DATA_DIR = path.join(ROOT, 'data');
 const META_FILE = path.join(DATA_DIR, 'metadata.json');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(PUBLIC_DIR));
 
 // Sanitize a user-provided name into a safe filename (without extension).
@@ -584,6 +584,108 @@ app.delete('/api/story/:id/highlights/:filename', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed to delete highlight' });
+  }
+});
+
+// --- Picture endpoints ---
+
+// Check if a picture exists
+app.get('/api/story/:id/pictures/:filename', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const filePath = path.join(storyDir(id), 'pictures', filename);
+    try {
+      await fs.access(filePath);
+    } catch (e) {
+      return res.status(404).json({ error: 'picture not found' });
+    }
+    // Serve the file
+    res.sendFile(filePath);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to serve picture' });
+  }
+});
+
+// Check if picture exists (HEAD-like check via query)
+app.get('/api/story/:id/pictures/:filename/exists', async (req, res) => {
+  const id = req.params.id;
+  const filename = req.params.filename;
+  try {
+    const filePath = path.join(storyDir(id), 'pictures', filename);
+    try {
+      await fs.access(filePath);
+      res.json({ exists: true });
+    } catch (e) {
+      res.json({ exists: false });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'check failed' });
+  }
+});
+
+// Upload picture (base64 in JSON body or URL to download)
+app.post('/api/story/:id/pictures', async (req, res) => {
+  const id = req.params.id;
+  const { name, data, url } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const picturesDir = path.join(storyDir(id), 'pictures');
+    await fs.mkdir(picturesDir, { recursive: true });
+
+    const sanitized = name; // trust the frontend to sanitize
+    const filePath = path.join(picturesDir, sanitized);
+
+    if (data) {
+      // base64 encoded file data
+      const buffer = Buffer.from(data, 'base64');
+      await fs.writeFile(filePath, buffer);
+      res.json({ ok: true, filename: sanitized, path: `/api/story/${id}/pictures/${sanitized}` });
+    } else if (url) {
+      // Download from URL using native http/https
+      try {
+        const downloadUrl = new URL(url);
+        const httpMod = downloadUrl.protocol === 'https:' ? require('https') : require('http');
+        await new Promise((resolve, reject) => {
+          const doGet = (targetUrl) => {
+            httpMod.get(targetUrl, (response) => {
+              if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+                doGet(response.headers.location);
+              } else {
+                const chunks = [];
+                response.on('data', chunk => chunks.push(chunk));
+                response.on('end', async () => {
+                  const buffer = Buffer.concat(chunks);
+                  await fs.writeFile(filePath, buffer);
+                  resolve();
+                });
+                response.on('error', reject);
+              }
+            }).on('error', reject);
+          };
+          doGet(url);
+        });
+        res.json({ ok: true, filename: sanitized, path: `/api/story/${id}/pictures/${sanitized}` });
+      } catch (e) {
+        console.error('Failed to download image from URL', e);
+        res.status(400).json({ error: 'failed to download from URL' });
+      }
+    } else {
+      res.status(400).json({ error: 'data or url required' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to upload picture' });
   }
 });
 

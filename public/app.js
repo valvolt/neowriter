@@ -842,6 +842,8 @@
 
     if (action === 'insert-table') {
       insertTable();
+    } else if (action === 'insert-picture') {
+      insertPicture();
     }
   });
 
@@ -861,6 +863,156 @@
     // Trigger update
     editor.dispatchEvent(new Event('input'));
     editor.focus();
+  }
+
+  // --- Insert Picture (dialog-based) ---
+
+  const picDialogOverlay = $('picture-dialog-overlay');
+  const picDialogName = $('picture-dialog-name');
+  const picDialogUrl = $('picture-dialog-url');
+  const picDialogFile = $('picture-dialog-file');
+  const picDialogCancel = $('picture-dialog-cancel');
+  const picDialogOk = $('picture-dialog-ok');
+  let pictureInsertPos = null;
+
+  function openPictureDialog() {
+    picDialogName.value = '';
+    picDialogUrl.value = '';
+    picDialogFile.value = '';
+    pictureInsertPos = editor.selectionEnd;
+    editor.selectionStart = pictureInsertPos;
+    picDialogOverlay.style.display = '';
+    picDialogName.focus();
+  }
+
+  function closePictureDialog() {
+    picDialogOverlay.style.display = 'none';
+  }
+
+  function insertPicture() {
+    if (!currentStoryId) return;
+    openPictureDialog();
+  }
+
+  picDialogCancel.addEventListener('click', closePictureDialog);
+  picDialogOverlay.addEventListener('click', (ev) => {
+    if (ev.target === picDialogOverlay) closePictureDialog();
+  });
+
+  picDialogOk.addEventListener('click', async () => {
+    const baseName = picDialogName.value.trim();
+    const urlValue = picDialogUrl.value.trim();
+    const fileValue = picDialogFile.files[0];
+
+    if (!baseName) {
+      alert('Please provide a name for the picture.');
+      return;
+    }
+
+    // Determine source: file takes priority over URL
+    let extension = '';
+    let source = null; // 'file' or 'url'
+
+    if (fileValue) {
+      source = 'file';
+      // Get extension from the uploaded file
+      const parts = fileValue.name.split('.');
+      extension = parts.length > 1 ? '.' + parts.pop().toLowerCase() : '';
+    } else if (urlValue) {
+      source = 'url';
+      // Try to extract extension from URL
+      try {
+        const urlPath = new URL(urlValue).pathname;
+        const urlParts = urlPath.split('/').pop().split('.');
+        extension = urlParts.length > 1 ? '.' + urlParts.pop().toLowerCase() : '.png';
+      } catch (e) {
+        extension = '.png';
+      }
+    } else {
+      alert('Please upload a file or provide a URL.');
+      return;
+    }
+
+    const fullFilename = baseName + extension;
+
+    // Check if file exists
+    try {
+      const check = await api(`/api/story/${currentStoryId}/pictures/${encodeURIComponent(fullFilename)}/exists`);
+      if (check.exists) {
+        const overwrite = confirm(`A picture named "${fullFilename}" already exists. Overwrite?`);
+        if (!overwrite) return;
+      }
+    } catch (e) {
+      // proceed
+    }
+
+    closePictureDialog();
+
+    if (source === 'file') {
+      // Read file as base64 and upload
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(',')[1];
+        await uploadPictureData(fullFilename, base64);
+      };
+      reader.readAsDataURL(fileValue);
+    } else if (source === 'url') {
+      await uploadPictureFromUrl(fullFilename, urlValue);
+    }
+  });
+
+  async function uploadPictureData(name, base64Data) {
+    if (!currentStoryId) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/pictures`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, data: base64Data })
+      });
+      if (res.ok && res.path) {
+        insertPictureMarkdown(name, res.path);
+      } else {
+        alert('Failed to upload picture');
+      }
+    } catch (e) {
+      console.error('upload picture failed', e);
+      alert('Failed to upload picture');
+    }
+  }
+
+  async function uploadPictureFromUrl(name, url) {
+    if (!currentStoryId) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/pictures`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, url })
+      });
+      if (res.ok && res.path) {
+        insertPictureMarkdown(name, res.path);
+      } else {
+        alert('Failed to upload picture from URL');
+      }
+    } catch (e) {
+      console.error('upload picture from URL failed', e);
+      alert('Failed to upload picture from URL');
+    }
+  }
+
+  function insertPictureMarkdown(altText, picPath) {
+    const md = `\n![${altText}](${picPath})\n`;
+    const pos = pictureInsertPos != null ? pictureInsertPos : editor.selectionEnd;
+    const before = editor.value.substring(0, pos);
+    const after = editor.value.substring(pos);
+    editor.value = before + md + after;
+
+    const newPos = pos + md.length;
+    editor.selectionStart = newPos;
+    editor.selectionEnd = newPos;
+
+    editor.dispatchEvent(new Event('input'));
+    editor.focus();
+    pictureInsertPos = null;
   }
 
   // --- Initial load ---

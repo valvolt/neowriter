@@ -73,7 +73,25 @@
   <div id="context-menu" class="context-menu" style="display:none;">
     <ul>
       <li data-action="insert-table">Insert Table</li>
+      <li data-action="insert-picture">Insert Picture</li>
     </ul>
+  </div>
+
+  <!-- Insert Picture dialog -->
+  <div id="picture-dialog-overlay" class="dialog-overlay" style="display:none;">
+    <div class="dialog">
+      <h3>Insert Picture</h3>
+      <label class="dialog-label">Name (without extension):</label>
+      <input type="text" id="picture-dialog-name" class="dialog-input" placeholder="e.g. my-photo" />
+      <label class="dialog-label">From URL:</label>
+      <input type="text" id="picture-dialog-url" class="dialog-input" placeholder="https://example.com/image.png" />
+      <label class="dialog-label">Or upload from disk:</label>
+      <input type="file" id="picture-dialog-file" accept="image/*" />
+      <div class="dialog-buttons">
+        <button id="picture-dialog-cancel" class="dialog-btn">Cancel</button>
+        <button id="picture-dialog-ok" class="dialog-btn dialog-btn-primary">Insert</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>
