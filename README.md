@@ -11,8 +11,6 @@ A distraction-free markdown writing tool with story management, tiles, highlight
 - **Speech-to-text** — Dictate text using the browser's SpeechRecognition API with real-time ghost preview and multi-language support
 - **Context menu** — Right-click to insert tables, links, pictures, keywords, or create highlights from selected text
 - **Auto-save** — All changes are saved automatically as you type
-- **Arrow replacement** — `-->`, `<--`, `<-->` are rendered as → ← ↔
-- **Dialogue formatting** — Lines starting with `- ` are rendered as em-dash dialogue
 
 ## Running
 
@@ -57,6 +55,14 @@ Rendering is handled client-side using the [marked](https://github.com/markedjs/
 - Links and images
 - Horizontal rules
 - Mermaid diagrams (fenced `mermaid` code blocks)
+
+## Specific rendering
+
+- **Arrow replacement** — `-->`, `<--`, `<-->` are rendered as → ← ↔
+- **Arrow replacement** — `==>`, `<==`, `<==>` are rendered as ⇒ ⇐ ⇔
+- **Dialogue formatting** — Lines starting with `- ` are rendered as em-dash dialogue
+- **Dice symbols**  — [.], [...], [.....] are rendered as ⚀ ⚂ ⚄
+- **Dinkus**   — `***` is rendered as ✦ ✦ ✦
 
 ## License
 

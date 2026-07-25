@@ -104,7 +104,16 @@
       node.nodeValue = node.nodeValue
         .replace(/<-->|<-->/g, '\u2194')
         .replace(/-->|-->/g, '\u2192')
-        .replace(/<--|<--/g, '\u2190');
+        .replace(/<--|<--/g, '\u2190')
+        .replace(/<==>|<==>/g, '\u21D4')
+        .replace(/==>|==>/g, '\u21D2')
+        .replace(/<==|<==/g, '\u21D0')
+        .replace(/\[\.\]|\[\.\]/g, '⚀')
+        .replace(/\[\.\.\]|\[\.\.\]/g, '⚁')
+        .replace(/\[\.\.\.\]|\[\.\.\.\]/g, '⚂')
+        .replace(/\[\.\.\.\.\]|\[\.\.\.\.\]/g, '⚃')
+        .replace(/\[\.\.\.\.\.\]|\[\.\.\.\.\.\]/g, '⚄')
+        .replace(/\[\.\.\.\.\.\.\]|\[\.\.\.\.\.\.\]/g, '⚅');
     }
   }
 
@@ -168,11 +177,16 @@
     });
   }
 
-  // Pre-process markdown: convert lines starting with "- " to em-dash dialogue
+  // Pre-process markdown
+  // convert lines starting with "- " to em-dash dialogue
   // (prevents marked from interpreting them as unordered list items)
   // Exception: task items "- [ ]", "- [x]", "- [X]" are left intact for checkbox rendering
   function preprocessMarkdown(text) {
-    return text.replace(/^- (?!\[[ xX]\])/gm, '\u2014 ');
+    // Convert standalone *** lines to a placeholder paragraph (before marked sees it as <hr>)
+    // We use a recognizable placeholder that survives markdown rendering
+    let result = text.replace(/^\*{3}$/gm, 'NEOWRITER_DINKUS');
+    result = result.replace(/^- (?!\[[ xX]\])/gm, '\u2014 ');
+    return result;
   }
 
   // Render markdown text into the preview pane with optional scroll fraction
@@ -182,6 +196,29 @@
     const container = document.createElement('div');
     container.innerHTML = html;
     replaceArrowsInContainer(container);
+
+    // Replace NEOWRITER_DINKUS placeholder text nodes with centered ✦✦✦ paragraphs
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+    const dinkusNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue.trim() === 'NEOWRITER_DINKUS') dinkusNodes.push(node);
+    }
+    dinkusNodes.forEach(textNode => {
+      const p = document.createElement('p');
+      p.style.textAlign = 'center';
+      p.style.letterSpacing = '1em';
+      p.style.margin = '1em 0';
+      p.textContent = '\u2726\u2726\u2726';
+      const parent = textNode.parentElement;
+      // If wrapped in a <p>, replace the whole <p>; otherwise replace just the text node
+      if (parent && parent.tagName === 'P') {
+        parent.replaceWith(p);
+      } else {
+        textNode.replaceWith(p);
+      }
+    });
+
     preview.innerHTML = container.innerHTML;
 
     try { renderMermaidDiagrams(preview); } catch (e) { console.error('renderMermaidDiagrams error', e); }
