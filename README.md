@@ -61,7 +61,7 @@ Rendering is handled client-side using the [marked](https://github.com/markedjs/
 - **Arrow replacement** — `-->`, `<--`, `<-->` are rendered as → ← ↔
 - **Arrow replacement** — `==>`, `<==`, `<==>` are rendered as ⇒ ⇐ ⇔
 - **Dialogue formatting** — Lines starting with `- ` are rendered as em-dash dialogue
-- **Dice symbols**  — [.], [...], [.....] are rendered as ⚀ ⚂ ⚄
+- **Dice symbols**  — `[.]`, `[...]`, `[.....]` are rendered as ⚀ ⚂ ⚄
 - **Dinkus**   — `***` is rendered as ✦ ✦ ✦
 
 ## License
