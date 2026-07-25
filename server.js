@@ -541,6 +541,9 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
       return res.status(404).json({ error: 'highlight not found' });
     }
 
+    // Derive the old display name from the filename (strip .md extension)
+    const oldName = filename.replace(/\.md$/, '');
+
     let newFilename = sanitizeFilename(newName) + '.md';
     if (newFilename !== filename) {
       let newPath = path.join(highlightsDir, newFilename);
@@ -557,6 +560,41 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
       }
       await fs.rename(oldPath, newPath);
     }
+
+    // Propagate rename into all tile files: replace oldName with newName (case-preserving)
+    const tilesDir = path.join(storyDir(id), 'tiles');
+    let tileFiles = [];
+    try {
+      tileFiles = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
+    } catch (e) {
+      tileFiles = [];
+    }
+
+    const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const replaceRegex = new RegExp(escapedOld, 'gi');
+
+    await Promise.all(tileFiles.map(async (tileFile) => {
+      const tilePath = path.join(tilesDir, tileFile);
+      try {
+        const content = await fs.readFile(tilePath, 'utf8');
+        if (!replaceRegex.test(content)) return;
+        replaceRegex.lastIndex = 0;
+        // Case-preserving replacement: match the case pattern of each occurrence
+        const updated = content.replace(replaceRegex, (match) => {
+          // Mirror the case pattern of the match onto newName
+          if (match === match.toUpperCase()) return newName.toUpperCase();
+          if (match[0] === match[0].toUpperCase()) {
+            return newName.charAt(0).toUpperCase() + newName.slice(1);
+          }
+          return newName.toLowerCase();
+        });
+        if (updated !== content) {
+          await fs.writeFile(tilePath, updated, 'utf8');
+        }
+      } catch (e) {
+        console.error(`failed to update tile ${tileFile}`, e);
+      }
+    }));
 
     res.json({ filename: newFilename, name: newName });
   } catch (err) {

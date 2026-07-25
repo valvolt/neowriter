@@ -1090,15 +1090,37 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: newName })
         });
-        if (res.filename && res.filename !== hl.filename) {
-          if (editMode === 'highlight' && currentHighlightFilename === hl.filename) {
-            currentHighlightFilename = res.filename;
-            updateBreadcrumb();
+        if (res.filename) {
+          // Update tiles cache: replace old name with new name in all cached tile content
+          const oldName = hl.name;
+          const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const replaceRegex = new RegExp(escapedOld, 'gi');
+          for (const tileFilename of tilesOrder) {
+            if (tilesCache[tileFilename]) {
+              tilesCache[tileFilename] = tilesCache[tileFilename].replace(replaceRegex, (match) => {
+                if (match === match.toUpperCase()) return newName.toUpperCase();
+                if (match[0] === match[0].toUpperCase()) return newName.charAt(0).toUpperCase() + newName.slice(1);
+                return newName.toLowerCase();
+              });
+            }
+          }
+          // Update highlight filename references if it changed
+          if (res.filename !== hl.filename) {
+            const cachedContent = highlightsContentCache[hl.filename];
+            if (cachedContent !== undefined) {
+              highlightsContentCache[res.filename] = cachedContent;
+              delete highlightsContentCache[hl.filename];
+            }
+            if (editMode === 'highlight' && currentHighlightFilename === hl.filename) {
+              currentHighlightFilename = res.filename;
+              updateBreadcrumb();
+            }
           }
         }
         // Re-fetch highlights (order may change due to alphabetical sort)
         await fetchHighlightsList();
         loadHighlightsList();
+        renderPreview();
       } catch (e) {
         console.error('rename highlight failed', e);
         alert('Rename highlight failed');
