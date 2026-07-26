@@ -357,6 +357,11 @@ footer{
   pointer-events:none;
 }
 
+/* Todo entry */
+.todo-entry{cursor:pointer;}
+.todo-entry:hover{background:#f0f4ff;}
+.todo-entry.active{background:#e3ecff; font-weight:500;}
+
 /* Highlight marks in preview */
 .highlight-mark{
   background:#fff176;

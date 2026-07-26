@@ -10,6 +10,7 @@ A distraction-free markdown writing tool with story management, tiles, highlight
 - **Keywords** — Tag highlights with `‡keyword` markers; keywords render as colored pills and determine highlight colors in the preview
 - **Speech-to-text** — Dictate text using the browser's SpeechRecognition API with real-time ghost preview and multi-language support
 - **Context menu** — Right-click to insert tables, links, pictures, keywords, or create highlights from selected text
+- **TODO-list** — All ☐ and ☑ spread through story tiles are collected in a single, editable TODO list
 - **Auto-save** — All changes are saved automatically as you type
 
 ## Running

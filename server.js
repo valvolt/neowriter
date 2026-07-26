@@ -174,6 +174,94 @@ async function writeTileOrder(id, order) {
   await fs.writeFile(orderFile, JSON.stringify(order, null, 2), 'utf8');
 }
 
+// --- Todo endpoint ---
+
+// Aggregate all task list items from all tiles, unchecked first
+app.get('/api/story/:id/todo', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const tilesDir = path.join(storyDir(id), 'tiles');
+    const order = await readTileOrder(id);
+    let files = [];
+    try { files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md')); } catch (e) { files = []; }
+
+    // Apply tile order
+    let ordered;
+    if (order && Array.isArray(order)) {
+      const fileSet = new Set(files);
+      ordered = order.filter(f => fileSet.has(f));
+      for (const f of files) { if (!order.includes(f)) ordered.push(f); }
+    } else {
+      ordered = files;
+    }
+
+    const unchecked = [];
+    const checked = [];
+
+    for (const filename of ordered) {
+      const tilePath = path.join(tilesDir, filename);
+      let content = '';
+      try { content = await fs.readFile(tilePath, 'utf8'); } catch (e) { continue; }
+      const lines = content.split('\n');
+      lines.forEach((line, lineIndex) => {
+        const uncheckedMatch = line.match(/^(\s*)-\s\[ \]\s(.+)$/);
+        const checkedMatch   = line.match(/^(\s*)-\s\[x\]\s(.+)$/i);
+        if (uncheckedMatch) {
+          unchecked.push({ text: uncheckedMatch[2].trim(), checked: false, filename, lineIndex });
+        } else if (checkedMatch) {
+          checked.push({ text: checkedMatch[2].trim(), checked: true, filename, lineIndex });
+        }
+      });
+    }
+
+    res.json([...unchecked, ...checked]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to aggregate todos' });
+  }
+});
+
+// Toggle a todo item (check/uncheck) in its source tile
+app.post('/api/story/:id/todo/toggle', async (req, res) => {
+  const id = req.params.id;
+  const { filename, lineIndex, checked } = req.body || {};
+  if (!filename || lineIndex === undefined || checked === undefined) {
+    return res.status(400).json({ error: 'filename, lineIndex, checked required' });
+  }
+  try {
+    const meta = await readMeta();
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'story not found' });
+
+    const tilePath = path.join(storyDir(id), 'tiles', filename);
+    let content = '';
+    try { content = await fs.readFile(tilePath, 'utf8'); } catch (e) {
+      return res.status(404).json({ error: 'tile not found' });
+    }
+
+    const lines = content.split('\n');
+    if (lineIndex < 0 || lineIndex >= lines.length) {
+      return res.status(400).json({ error: 'lineIndex out of range' });
+    }
+
+    if (checked) {
+      lines[lineIndex] = lines[lineIndex].replace(/^(\s*-\s)\[ \]/, '$1[x]');
+    } else {
+      lines[lineIndex] = lines[lineIndex].replace(/^(\s*-\s)\[x\]/i, '$1[ ]');
+    }
+
+    await fs.writeFile(tilePath, lines.join('\n'), 'utf8');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to toggle todo' });
+  }
+});
+
 // --- Tile endpoints ---
 
 // List tiles for a story (respects _order.json)

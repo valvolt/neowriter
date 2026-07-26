@@ -18,6 +18,8 @@
   const binderStoryName = $('binder-story-name');
   const binderTilesList = $('binder-tiles-list');
   const binderHighlightsList = $('binder-highlights-list');
+  const binderTodoEntry = $('binder-todo-entry');
+  const todoCountBadge = $('todo-count-badge');
   const btnBack = $('btn-back');
   const btnAddTile = $('btn-add-tile');
   const btnAddHighlight = $('btn-add-highlight');
@@ -590,6 +592,7 @@
   // --- Render dispatcher ---
 
   function renderPreview() {
+    if (editMode === 'todo') return; // todo view manages its own rendering
     if (editMode === 'tile') {
       renderFullStory();
     } else if (editMode === 'highlight') {
@@ -683,6 +686,7 @@
     await prefetchAllHighlightContents();
     loadTilesList();
     loadHighlightsList();
+    refreshTodoBadge();
     renderPreview();
   }
 
@@ -951,6 +955,7 @@
     editMode = 'tile';
     currentTileFilename = filename;
     currentHighlightFilename = null;
+    if (binderTodoEntry) binderTodoEntry.classList.remove('active');
     const content = tilesCache[filename] || '';
     if (editor) {
       editor.disabled = false;
@@ -1199,6 +1204,7 @@
       editMode = 'highlight';
       currentHighlightFilename = filename;
       currentTileFilename = null;
+      if (binderTodoEntry) binderTodoEntry.classList.remove('active');
       // Update tooltip cache with fresh content
       highlightsContentCache[filename] = res.content || '';
       if (editor) {
@@ -1237,7 +1243,132 @@
     }
   }
 
-  // --- Breadcrumb ---
+  // --- Todo ---
+
+  async function openTodo() {
+    if (!currentStoryId) return;
+    editMode = 'todo';
+    currentTileFilename = null;
+    currentHighlightFilename = null;
+    if (editor) {
+      editor.disabled = true;
+      editor.value = '';
+    }
+    updateStats('');
+    updateBreadcrumb();
+    loadTilesList();
+    loadHighlightsList();
+    if (binderTodoEntry) binderTodoEntry.classList.add('active');
+    await renderTodo();
+  }
+
+  async function renderTodo() {
+    if (!currentStoryId) return;
+    try {
+      const todos = await api(`/api/story/${currentStoryId}/todo`);
+      const list = Array.isArray(todos) ? todos : [];
+
+      // Update badge
+      const uncheckedCount = list.filter(t => !t.checked).length;
+      if (todoCountBadge) {
+        if (list.length > 0) {
+          todoCountBadge.textContent = uncheckedCount > 0 ? `${uncheckedCount}/${list.length}` : `✓ ${list.length}`;
+          todoCountBadge.style.display = '';
+        } else {
+          todoCountBadge.style.display = 'none';
+        }
+      }
+
+      if (editMode !== 'todo') return;
+
+      if (list.length === 0) {
+        preview.innerHTML = '<p style="color:#aaa;font-style:italic;padding:12px">No todo items found.</p>';
+        return;
+      }
+
+      // Render as interactive checklist
+      const container = document.createElement('div');
+      container.style.padding = '12px';
+
+      list.forEach((item) => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'flex-start';
+        row.style.gap = '8px';
+        row.style.marginBottom = '8px';
+        row.style.opacity = item.checked ? '0.5' : '1';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = item.checked;
+        cb.style.marginTop = '3px';
+        cb.style.cursor = 'pointer';
+        cb.style.flexShrink = '0';
+
+        cb.addEventListener('change', async () => {
+          try {
+            await api(`/api/story/${currentStoryId}/todo/toggle`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filename: item.filename, lineIndex: item.lineIndex, checked: cb.checked })
+            });
+            // Refresh tile cache for the affected tile
+            try {
+              const res = await api(`/api/story/${currentStoryId}/tiles/${item.filename}`);
+              tilesCache[item.filename] = res.content || '';
+            } catch (e) { /* ignore */ }
+            await renderTodo();
+          } catch (e) {
+            console.error('todo toggle failed', e);
+            cb.checked = !cb.checked; // revert
+          }
+        });
+
+        const label = document.createElement('span');
+        label.textContent = item.text;
+        label.style.fontSize = '14px';
+        label.style.lineHeight = '1.5';
+        if (item.checked) label.style.textDecoration = 'line-through';
+
+        const source = document.createElement('span');
+        source.textContent = item.filename.replace(/\.md$/, '');
+        source.style.fontSize = '11px';
+        source.style.color = '#aaa';
+        source.style.marginLeft = 'auto';
+        source.style.paddingLeft = '8px';
+        source.style.flexShrink = '0';
+
+        row.appendChild(cb);
+        row.appendChild(label);
+        row.appendChild(source);
+        container.appendChild(row);
+      });
+
+      preview.innerHTML = '';
+      preview.appendChild(container);
+    } catch (e) {
+      console.error('render todo failed', e);
+    }
+  }
+
+  async function refreshTodoBadge() {
+    if (!currentStoryId) return;
+    try {
+      const todos = await api(`/api/story/${currentStoryId}/todo`);
+      const list = Array.isArray(todos) ? todos : [];
+      const uncheckedCount = list.filter(t => !t.checked).length;
+      if (todoCountBadge) {
+        if (list.length > 0) {
+          todoCountBadge.textContent = uncheckedCount > 0 ? `${uncheckedCount}/${list.length}` : `✓ ${list.length}`;
+          todoCountBadge.style.display = '';
+        } else {
+          todoCountBadge.style.display = 'none';
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+
 
   function updateBreadcrumb() {
     const storyLabel = currentStoryName || '';
@@ -1246,6 +1377,8 @@
       itemLabel = currentTileFilename.replace(/\.md$/, '');
     } else if (editMode === 'highlight' && currentHighlightFilename) {
       itemLabel = currentHighlightFilename.replace(/\.md$/, '');
+    } else if (editMode === 'todo') {
+      itemLabel = 'Todo';
     }
     const breadcrumb = itemLabel ? `${storyLabel} \u203A ${itemLabel}` : storyLabel;
     if (openStoryEl) openStoryEl.textContent = breadcrumb;
@@ -1289,6 +1422,7 @@
     if (editMode === 'tile' && currentTileFilename) {
       tilesCache[currentTileFilename] = text;
       loadHighlightsList();
+      refreshTodoBadge();
     }
 
     // Update tooltip cache when editing a highlight and refresh menu (keywords may change)
@@ -1317,6 +1451,11 @@
   });
   btnAddTile.addEventListener('click', addTile);
   btnAddHighlight.addEventListener('click', addHighlight);
+
+  // Todo entry click
+  if (binderTodoEntry) {
+    binderTodoEntry.addEventListener('click', openTodo);
+  }
 
   // Highlights sort selector
   if (highlightsSortEl) {
