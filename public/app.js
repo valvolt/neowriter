@@ -1310,11 +1310,11 @@
             await api(`/api/story/${currentStoryId}/todo/toggle`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ filename: item.filename, lineIndex: item.lineIndex, checked: cb.checked })
+              body: JSON.stringify({ directory: item.directory, filename: item.filename, lineIndex: item.lineIndex, checked: cb.checked })
             });
             // Refresh tile cache for the affected tile
             try {
-              const res = await api(`/api/story/${currentStoryId}/tiles/${item.filename}`);
+              const res = await api(`/api/story/${currentStoryId}/${item.directory}/${item.filename}`);
               tilesCache[item.filename] = res.content || '';
             } catch (e) { /* ignore */ }
             await renderTodo();
@@ -1337,6 +1337,10 @@
         source.style.marginLeft = 'auto';
         source.style.paddingLeft = '8px';
         source.style.flexShrink = '0';
+
+        if (item.directory === 'highlights') {
+          source.style.fontStyle = 'italic';
+        }
 
         row.appendChild(cb);
         row.appendChild(label);

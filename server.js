@@ -176,46 +176,77 @@ async function writeTileOrder(id, order) {
 
 // --- Todo endpoint ---
 
-// Aggregate all task list items from all tiles, unchecked first
+// Aggregate all task list items from all tiles and highlights, unchecked first
 app.get('/api/story/:id/todo', async (req, res) => {
   const id = req.params.id;
+
   try {
     const meta = await readMeta();
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const tilesDir = path.join(storyDir(id), 'tiles');
     const order = await readTileOrder(id);
-    let files = [];
-    try { files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md')); } catch (e) { files = []; }
-
-    // Apply tile order
-    let ordered;
-    if (order && Array.isArray(order)) {
-      const fileSet = new Set(files);
-      ordered = order.filter(f => fileSet.has(f));
-      for (const f of files) { if (!order.includes(f)) ordered.push(f); }
-    } else {
-      ordered = files;
-    }
 
     const unchecked = [];
     const checked = [];
 
-    for (const filename of ordered) {
-      const tilePath = path.join(tilesDir, filename);
-      let content = '';
-      try { content = await fs.readFile(tilePath, 'utf8'); } catch (e) { continue; }
-      const lines = content.split('\n');
-      lines.forEach((line, lineIndex) => {
-        const uncheckedMatch = line.match(/^(\s*)-\s\[ \]\s(.+)$/);
-        const checkedMatch   = line.match(/^(\s*)-\s\[x\]\s(.+)$/i);
-        if (uncheckedMatch) {
-          unchecked.push({ text: uncheckedMatch[2].trim(), checked: false, filename, lineIndex });
-        } else if (checkedMatch) {
-          checked.push({ text: checkedMatch[2].trim(), checked: true, filename, lineIndex });
+    const dirs = ['tiles', 'highlights'];
+
+    for (const dir of dirs) {
+      const mdDir = path.join(storyDir(id), dir);
+
+      let files = [];
+      try {
+        files = (await fs.readdir(mdDir)).filter(f => f.endsWith('.md'));
+      } catch (e) {
+        continue; // directory doesn't exist
+      }
+
+      // Only apply ordering to tiles
+      let ordered = files;
+      if (dir === 'tiles' && order && Array.isArray(order)) {
+        const fileSet = new Set(files);
+        ordered = order.filter(f => fileSet.has(f));
+        for (const f of files) {
+          if (!order.includes(f)) ordered.push(f);
         }
-      });
+      }
+
+      for (const filename of ordered) {
+        const filePath = path.join(mdDir, filename);
+
+        let content = '';
+        try {
+          content = await fs.readFile(filePath, 'utf8');
+        } catch (e) {
+          continue;
+        }
+
+        const lines = content.split('\n');
+
+        lines.forEach((line, lineIndex) => {
+          const uncheckedMatch = line.match(/^(\s*)-\s\[ \]\s(.+)$/);
+          const checkedMatch = line.match(/^(\s*)-\s\[x\]\s(.+)$/i);
+
+          if (uncheckedMatch) {
+            unchecked.push({
+              text: uncheckedMatch[2].trim(),
+              checked: false,
+              filename,
+              directory: dir,
+              lineIndex
+            });
+          } else if (checkedMatch) {
+            checked.push({
+              text: checkedMatch[2].trim(),
+              checked: true,
+              filename,
+              directory: dir,
+              lineIndex
+            });
+          }
+        });
+      }
     }
 
     res.json([...unchecked, ...checked]);
@@ -225,25 +256,38 @@ app.get('/api/story/:id/todo', async (req, res) => {
   }
 });
 
-// Toggle a todo item (check/uncheck) in its source tile
+// Toggle a todo item (check/uncheck) in its source file
 app.post('/api/story/:id/todo/toggle', async (req, res) => {
   const id = req.params.id;
-  const { filename, lineIndex, checked } = req.body || {};
-  if (!filename || lineIndex === undefined || checked === undefined) {
-    return res.status(400).json({ error: 'filename, lineIndex, checked required' });
+  const { directory, filename, lineIndex, checked } = req.body || {};
+
+  if (!directory || !filename || lineIndex === undefined || checked === undefined) {
+    return res.status(400).json({
+      error: 'directory, filename, lineIndex, checked required'
+    });
   }
+
+  // Prevent arbitrary path access
+  if (!['tiles', 'highlights'].includes(directory)) {
+    return res.status(400).json({ error: 'invalid directory' });
+  }
+
   try {
     const meta = await readMeta();
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const tilePath = path.join(storyDir(id), 'tiles', filename);
+    const filePath = path.join(storyDir(id), directory, filename);
+
     let content = '';
-    try { content = await fs.readFile(tilePath, 'utf8'); } catch (e) {
-      return res.status(404).json({ error: 'tile not found' });
+    try {
+      content = await fs.readFile(filePath, 'utf8');
+    } catch (e) {
+      return res.status(404).json({ error: 'file not found' });
     }
 
     const lines = content.split('\n');
+
     if (lineIndex < 0 || lineIndex >= lines.length) {
       return res.status(400).json({ error: 'lineIndex out of range' });
     }
@@ -254,7 +298,8 @@ app.post('/api/story/:id/todo/toggle', async (req, res) => {
       lines[lineIndex] = lines[lineIndex].replace(/^(\s*-\s)\[x\]/i, '$1[ ]');
     }
 
-    await fs.writeFile(tilePath, lines.join('\n'), 'utf8');
+    await fs.writeFile(filePath, lines.join('\n'), 'utf8');
+
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
