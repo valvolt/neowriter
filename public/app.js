@@ -1337,11 +1337,15 @@
         source.style.marginLeft = 'auto';
         source.style.paddingLeft = '8px';
         source.style.flexShrink = '0';
+        source.style.cursor = 'pointer';
 
         if (item.directory === 'highlights') {
           source.style.fontStyle = 'italic';
+          source.addEventListener('click', () => openHighlight(item.filename));
+        } else {
+          source.addEventListener('click', () => openTile(item.filename));
         }
-
+ 
         row.appendChild(cb);
         row.appendChild(label);
         row.appendChild(source);
