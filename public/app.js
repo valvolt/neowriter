@@ -951,7 +951,7 @@
     return li;
   }
 
-  function openTile(filename) {
+  function openTile(filename, lineIndex) {
     if (!currentStoryId) return;
     editMode = 'tile';
     currentTileFilename = filename;
@@ -962,6 +962,16 @@
       editor.disabled = false;
       editor.value = content;
       editor.placeholder = 'Start typing markdown...';
+      // Position cursor at the specified line if provided
+      if (typeof lineIndex === 'number' && lineIndex >= 0) {
+        const lines = content.split('\n');
+        let charPos = 0;
+        for (let i = 0; i < lineIndex && i < lines.length; i++) {
+          charPos += lines[i].length + 1; // +1 for the newline character
+        }
+        editor.selectionStart = charPos;
+        editor.selectionEnd = charPos;
+      }
     }
     updateStats(editor.value);
     updateBreadcrumb();
@@ -1198,7 +1208,7 @@
     return li;
   }
 
-  async function openHighlight(filename) {
+  async function openHighlight(filename, lineIndex) {
     if (!currentStoryId) return;
     try {
       const res = await api(`/api/story/${currentStoryId}/highlights/${filename}`);
@@ -1212,6 +1222,17 @@
         editor.disabled = false;
         editor.value = res.content || '';
         editor.placeholder = 'Start typing markdown...';
+        // Position cursor at the specified line if provided
+        if (typeof lineIndex === 'number' && lineIndex >= 0) {
+          const content = res.content || '';
+          const lines = content.split('\n');
+          let charPos = 0;
+          for (let i = 0; i < lineIndex && i < lines.length; i++) {
+            charPos += lines[i].length + 1;
+          }
+          editor.selectionStart = charPos;
+          editor.selectionEnd = charPos;
+        }
       }
       updateStats(editor.value);
       updateBreadcrumb();
@@ -1283,7 +1304,7 @@
       if (editMode !== 'todo') return;
 
       if (list.length === 0) {
-        preview.innerHTML = '<p style="color:#aaa;font-style:italic;padding:12px">No todo items found.</p>';
+        preview.innerHTML = '<p style="color:#aaa;font-style:italic;padding:12px">No todo items found. Use - [ ] in any page to add one</p>';
         return;
       }
 
@@ -1342,9 +1363,17 @@
 
         if (item.directory === 'highlights') {
           source.style.fontStyle = 'italic';
-          source.addEventListener('click', () => openHighlight(item.filename));
+          source.addEventListener('click', () => openHighlight(item.filename, item.lineIndex));
         } else {
-          source.addEventListener('click', () => openTile(item.filename));
+          source.addEventListener('click', () => openTile(item.filename, item.lineIndex));
+        }
+
+        // Make the label (todo text) also clickable to navigate to the line
+        label.style.cursor = 'pointer';
+        if (item.directory === 'highlights') {
+          label.addEventListener('click', () => openHighlight(item.filename, item.lineIndex));
+        } else {
+          label.addEventListener('click', () => openTile(item.filename, item.lineIndex));
         }
  
         row.appendChild(cb);
