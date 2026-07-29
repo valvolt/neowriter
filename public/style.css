@@ -249,8 +249,8 @@ main{
 #preview img{max-width:100%;height:auto}
 /* Task list items: hide bullet markers, show only checkbox */
 #preview ul li input[type="checkbox"]{margin-right:6px;}
-#preview ul:has(li > input[type="checkbox"]){list-style:none;padding-left:0;}
-#preview li:has(> input[type="checkbox"]){list-style:none;}
+#preview ul:has(li input[type="checkbox"]){list-style:none;padding-left:0;}
+#preview li:has(input[type="checkbox"]){list-style:none;}
 
 /* Footer */
 footer{
