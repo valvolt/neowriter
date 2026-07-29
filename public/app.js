@@ -95,7 +95,8 @@
     return tmp.value;
   }
 
-  function replaceArrowsInContainer(container) {
+  // renders arrows and dice
+  function replaceElementsInContainer(container) {
     if (!container) return;
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
     let node;
@@ -180,13 +181,13 @@
   }
 
   // Pre-process markdown
-  // convert lines starting with "- " to em-dash dialogue
-  // (prevents marked from interpreting them as unordered list items)
-  // Exception: task items "- [ ]", "- [x]", "- [X]" are left intact for checkbox rendering
   function preprocessMarkdown(text) {
     // Convert standalone *** lines to a placeholder paragraph (before marked sees it as <hr>)
     // We use a recognizable placeholder that survives markdown rendering
     let result = text.replace(/^\*{3}$/gm, 'NEOWRITER_DINKUS');
+    // convert lines starting with "- " to em-dash dialogue
+    // (prevents marked from interpreting them as unordered list items)
+    // Exception: task items "- [ ]", "- [x]", "- [X]" are left intact for checkbox rendering
     result = result.replace(/^- (?!\[[ xX]\])/gm, '\u2014 ');
     return result;
   }
@@ -197,7 +198,7 @@
     const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(processed) : (processed);
     const container = document.createElement('div');
     container.innerHTML = html;
-    replaceArrowsInContainer(container);
+    replaceElementsInContainer(container);
 
     // Replace NEOWRITER_DINKUS placeholder text nodes with centered ✦✦✦ paragraphs
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
