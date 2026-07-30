@@ -133,19 +133,54 @@ function storyDir(username, id) {
 
 // --- Serve index.html dynamically (inject user info) ---
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   if (!LOCAL_MODE && (!req.oidc || !req.oidc.isAuthenticated())) {
-    // Show login page for unauthenticated users
+    // Show login page with published stories for unauthenticated users
+    let storiesHtml = '';
+    try {
+      let userDirs = [];
+      try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
+      const published = [];
+      for (const udir of userDirs) {
+        const upath = path.join(DATA_DIR, udir);
+        try {
+          const stat = await fs.stat(upath);
+          if (!stat.isDirectory()) continue;
+          const mf = path.join(upath, 'metadata.json');
+          const raw = await fs.readFile(mf, 'utf8');
+          const meta = JSON.parse(raw);
+          for (const item of meta) {
+            if (item.published) {
+              published.push({ id: item.id, name: item.name, author: item.author || udir, username: udir });
+            }
+          }
+        } catch (e) { /* skip */ }
+      }
+      if (published.length > 0) {
+        storiesHtml = '<div class="stories"><h2>Published Stories</h2><ul>' +
+          published.map(s => `<li><a href="/read/${s.username}/${s.id}">${s.name}</a><span class="author">by ${s.author}</span></li>`).join('') +
+          '</ul></div>';
+      }
+    } catch (e) { /* ignore */ }
+
     return res.type('html').send(`
       <!doctype html>
       <html><head><title>Neo Writer</title>
-      <style>body{font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f7f7f8;}
-      .card{text-align:center;padding:40px;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
+      <style>body{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;background:#f7f7f8;}
+      .card{text-align:center;padding:40px;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:24px;}
       h1{color:#2b7cff;margin-bottom:24px;}
       a{display:inline-block;margin:8px;padding:12px 24px;background:#2b7cff;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;}
-      a:hover{opacity:0.9;} a.secondary{background:#f0f0f2;color:#333;}</style>
+      a:hover{opacity:0.9;} a.secondary{background:#f0f0f2;color:#333;}
+      .stories{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.04);padding:24px 32px;max-width:600px;width:100%;}
+      .stories h2{margin:0 0 16px;font-size:18px;color:#333;}
+      .stories ul{list-style:none;padding:0;margin:0;}
+      .stories li{padding:10px 0;border-bottom:1px solid #eee;display:flex;align-items:center;gap:12px;}
+      .stories li:last-child{border-bottom:none;}
+      .stories li a{display:inline;margin:0;padding:0;background:none;color:#2b7cff;font-weight:500;font-size:15px;text-decoration:none;}
+      .stories li a:hover{text-decoration:underline;}
+      .stories .author{font-size:13px;color:#888;}</style>
       </head><body><div class="card"><h1>Neo Writer</h1><p>Please log in to continue.</p>
-      <a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a></div></body></html>
+      <a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a></div>${storiesHtml}</body></html>
     `);
   }
 
@@ -1085,6 +1120,161 @@ app.post('/api/story/:id/pictures', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed to upload picture' });
+  }
+});
+
+// --- Publish feature ---
+
+// Toggle publish state for a story
+app.post('/api/story/:id/publish', async (req, res) => {
+  const id = req.params.id;
+  const published = !!(req.body && req.body.published);
+  try {
+    const username = getUsername(req);
+    const meta = await readMeta(username);
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'not found' });
+    item.published = published;
+    await writeMeta(username, meta);
+    res.json({ id, published });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to update publish state' });
+  }
+});
+
+// Get publish state for a story
+app.get('/api/story/:id/published', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const username = getUsername(req);
+    const meta = await readMeta(username);
+    const item = meta.find(m => m.id === id);
+    if (!item) return res.status(404).json({ error: 'not found' });
+    res.json({ id, published: !!item.published });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to read publish state' });
+  }
+});
+
+// --- Public routes (no authentication required) ---
+
+// List all published stories across all users
+app.get('/public/stories', async (req, res) => {
+  try {
+    const entries = [];
+    let userDirs;
+    try {
+      userDirs = await fs.readdir(DATA_DIR);
+    } catch (e) {
+      return res.json([]);
+    }
+    for (const udir of userDirs) {
+      const upath = path.join(DATA_DIR, udir);
+      const stat = await fs.stat(upath);
+      if (!stat.isDirectory()) continue;
+      const mf = path.join(upath, 'metadata.json');
+      try {
+        const raw = await fs.readFile(mf, 'utf8');
+        const meta = JSON.parse(raw);
+        for (const item of meta) {
+          if (item.published) {
+            entries.push({ id: item.id, name: item.name, author: item.author || udir, username: udir });
+          }
+        }
+      } catch (e) {
+        // skip users with no/invalid metadata
+      }
+    }
+    res.json(entries);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to list published stories' });
+  }
+});
+
+// Read a published story (full content, all tiles concatenated)
+app.get('/public/story/:username/:id', async (req, res) => {
+  const { username, id } = req.params;
+  try {
+    const mf = path.join(DATA_DIR, username, 'metadata.json');
+    const raw = await fs.readFile(mf, 'utf8');
+    const meta = JSON.parse(raw);
+    const item = meta.find(m => m.id === id);
+    if (!item || !item.published) return res.status(404).json({ error: 'not found or not published' });
+
+    // Read tiles in order
+    const tilesDir = path.join(DATA_DIR, username, id, 'tiles');
+    let order = [];
+    try {
+      const orderRaw = await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8');
+      order = JSON.parse(orderRaw);
+    } catch (e) {
+      // fallback: read directory
+      try {
+        const files = await fs.readdir(tilesDir);
+        order = files.filter(f => f.endsWith('.md')).sort();
+      } catch (e2) {
+        order = [];
+      }
+    }
+
+    let content = '';
+    for (const filename of order) {
+      try {
+        const tile = await fs.readFile(path.join(tilesDir, filename), 'utf8');
+        content += (content ? '\n\n' : '') + tile;
+      } catch (e) {
+        // skip unreadable tiles
+      }
+    }
+
+    res.json({ id, name: item.name, author: item.author || username, content });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to read published story' });
+  }
+});
+
+// Serve pictures from published stories
+app.get('/public/story/:username/:id/pictures/:filename', async (req, res) => {
+  const { username, id, filename } = req.params;
+  try {
+    // Verify story is published
+    const mf = path.join(DATA_DIR, username, 'metadata.json');
+    const raw = await fs.readFile(mf, 'utf8');
+    const meta = JSON.parse(raw);
+    const item = meta.find(m => m.id === id);
+    if (!item || !item.published) return res.status(404).send('Not found');
+
+    const filePath = path.join(DATA_DIR, username, id, 'pictures', filename);
+    try {
+      await fs.access(filePath);
+      res.sendFile(filePath);
+    } catch (e) {
+      res.status(404).send('Not found');
+    }
+  } catch (err) {
+    res.status(404).send('Not found');
+  }
+});
+
+// Serve the reader page for published stories
+app.get('/read/:username/:id', async (req, res) => {
+  const { username, id } = req.params;
+  try {
+    // Verify story is published
+    const mf = path.join(DATA_DIR, username, 'metadata.json');
+    const raw = await fs.readFile(mf, 'utf8');
+    const meta = JSON.parse(raw);
+    const item = meta.find(m => m.id === id);
+    if (!item || !item.published) return res.status(404).send('Story not found');
+
+    const readerPath = path.join(PUBLIC_DIR, 'reader.html');
+    res.sendFile(readerPath);
+  } catch (err) {
+    res.status(404).send('Story not found');
   }
 });
 

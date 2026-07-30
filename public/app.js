@@ -89,6 +89,10 @@
   let highlightsRenderEnabled = true;
   const toggleHighlightsEl = $('toggle-highlights');
 
+  // Publish toggle
+  const togglePublishEl = $('toggle-publish');
+  let storyPublished = false;
+
   // --- Utilities ---
 
   function updateStats(text) {
@@ -666,6 +670,53 @@
 
   // --- View switching ---
 
+  // --- Publish toggle helpers ---
+
+  function updatePublishButton() {
+    if (!togglePublishEl) return;
+    if (storyPublished) {
+      togglePublishEl.textContent = 'Published \u2713';
+      togglePublishEl.style.background = '#e8f5e9';
+      togglePublishEl.style.color = '#2e7d32';
+    } else {
+      togglePublishEl.textContent = 'Published \u2717';
+      togglePublishEl.style.background = '#f5f5f5';
+      togglePublishEl.style.color = '#888';
+    }
+  }
+
+  async function fetchPublishState() {
+    if (!currentStoryId) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/published`);
+      storyPublished = !!res.published;
+    } catch (e) {
+      storyPublished = false;
+    }
+    updatePublishButton();
+  }
+
+  async function togglePublish() {
+    if (!currentStoryId) return;
+    const newState = !storyPublished;
+    try {
+      await api(`/api/story/${currentStoryId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ published: newState })
+      });
+      storyPublished = newState;
+      updatePublishButton();
+    } catch (e) {
+      console.error('toggle publish failed', e);
+      alert('Failed to update publish state');
+    }
+  }
+
+  if (togglePublishEl) {
+    togglePublishEl.addEventListener('click', togglePublish);
+  }
+
   function showStoryList() {
     storyListEl.style.display = '';
     document.querySelector('.menu-controls').style.display = '';
@@ -690,6 +741,9 @@
     if (currentName) currentName.textContent = '';
     updateStats('');
     if (preview) preview.innerHTML = '';
+    // Hide publish button when no story is open
+    if (togglePublishEl) togglePublishEl.style.display = 'none';
+    storyPublished = false;
     refreshGlobalTodoBadge();
   }
 
@@ -706,6 +760,12 @@
     if (globalTodoSection) globalTodoSection.style.display = 'none';
     binderEl.style.display = '';
     binderStoryName.textContent = storyName;
+
+    // Show publish button when a story is open (only in hosted mode)
+    if (togglePublishEl && !window.local_mode) {
+      togglePublishEl.style.display = '';
+      await fetchPublishState();
+    }
 
     await fetchAllTilesContent();
     await fetchHighlightsList();

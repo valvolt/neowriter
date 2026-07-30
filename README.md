@@ -12,6 +12,7 @@ A distraction-free markdown writing tool with story management, tiles, highlight
 - **Context menu** — Right-click to insert tables, links, pictures, keywords, or create highlights from selected text
 - **TODO-list** — All ☐ and ☑ spread through story tiles are collected in a single, editable TODO list
 - **Auto-save** — All changes are saved automatically as you type
+- **Publishing** — Make your stories visible/hidden to unauthenticated users
 
 ## Running locally
 
