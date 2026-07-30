@@ -1,22 +1,78 @@
+require('dotenv').config();
 const express = require('express');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Local/hosted mode toggle.
-const LOCAL_MODE = true;
+// Detect mode: if Auth0 env vars are present, run in hosted mode
+const LOCAL_MODE = !process.env.CLIENT_ID;
 const DEFAULT_USER = 'anonymous';
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
-const META_FILE = path.join(DATA_DIR, 'metadata.json');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 
+// --- Auth0 setup (hosted mode only) ---
+if (!LOCAL_MODE) {
+  const { auth } = require('express-openid-connect');
+  app.use(
+    auth({
+      authRequired: false,
+      auth0Logout: true,
+      secret: process.env.SECRET,
+      baseURL: process.env.BASE_URL,
+      clientID: process.env.CLIENT_ID,
+      issuerBaseURL: process.env.ISSUER_BASE_URL,
+    })
+  );
+}
+
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static(PUBLIC_DIR));
+// Serve static assets but NOT index.html (we serve it dynamically)
+app.use(express.static(PUBLIC_DIR, { index: false }));
+
+// --- User helpers ---
+
+// Sanitize an email/username into a safe directory name
+function sanitizeUsername(email) {
+  let s = String(email).trim().toLowerCase();
+  s = s.replace(/@/g, '-');
+  s = s.replace(/[^a-z0-9\-\.]/g, '-');
+  s = s.replace(/-{2,}/g, '-');
+  s = s.replace(/^-+|-+$/g, '');
+  return s || 'unknown';
+}
+
+// Get the current username from the request
+function getUsername(req) {
+  if (LOCAL_MODE) return DEFAULT_USER;
+  if (req.oidc && req.oidc.isAuthenticated() && req.oidc.user) {
+    return sanitizeUsername(req.oidc.user.email || req.oidc.user.name || 'unknown');
+  }
+  return null; // not authenticated
+}
+
+// Get the display name (email) for the client
+function getDisplayName(req) {
+  if (LOCAL_MODE) return DEFAULT_USER;
+  if (req.oidc && req.oidc.isAuthenticated() && req.oidc.user) {
+    return req.oidc.user.email || req.oidc.user.name || 'unknown';
+  }
+  return null;
+}
+
+// Middleware: require authentication for API routes in hosted mode
+function requireUser(req, res, next) {
+  if (LOCAL_MODE) return next();
+  if (!req.oidc || !req.oidc.isAuthenticated()) {
+    return res.status(401).json({ error: 'authentication required' });
+  }
+  next();
+}
 
 // Sanitize a user-provided name into a safe filename (without extension).
 // Lowercase, replace spaces/underscores with hyphens, strip non-alphanumeric (except hyphens), collapse multiple hyphens, trim hyphens.
@@ -29,41 +85,107 @@ function sanitizeFilename(name) {
   return s || 'untitled';
 }
 
-// Ensure data directory and metadata file exist.
-async function ensureData() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+// --- Per-user data helpers ---
 
-  if (LOCAL_MODE) {
-    const userDir = path.join(DATA_DIR, DEFAULT_USER);
-    await fs.mkdir(userDir, { recursive: true });
-  }
+function userDir(username) {
+  return path.join(DATA_DIR, username);
+}
 
+function metaFile(username) {
+  return path.join(userDir(username), 'metadata.json');
+}
+
+// Ensure data directory and metadata file exist for a user.
+async function ensureUserData(username) {
+  const dir = userDir(username);
+  await fs.mkdir(dir, { recursive: true });
+  const mf = metaFile(username);
   try {
-    await fs.access(META_FILE);
+    await fs.access(mf);
   } catch (e) {
-    await fs.writeFile(META_FILE, JSON.stringify([], null, 2), 'utf8');
+    await fs.writeFile(mf, JSON.stringify([], null, 2), 'utf8');
   }
 }
 
-async function readMeta() {
-  const raw = await fs.readFile(META_FILE, 'utf8');
+// Ensure base data directory exists (called once at startup)
+async function ensureData() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  if (LOCAL_MODE) {
+    await ensureUserData(DEFAULT_USER);
+  }
+}
+
+async function readMeta(username) {
+  const mf = metaFile(username);
+  const raw = await fs.readFile(mf, 'utf8');
   return JSON.parse(raw);
 }
 
-async function writeMeta(meta) {
-  await fs.writeFile(META_FILE, JSON.stringify(meta, null, 2), 'utf8');
+async function writeMeta(username, meta) {
+  const mf = metaFile(username);
+  await fs.writeFile(mf, JSON.stringify(meta, null, 2), 'utf8');
 }
 
 // Get the base directory for a story
-function storyDir(id) {
-  const userDir = LOCAL_MODE ? path.join(DATA_DIR, DEFAULT_USER) : DATA_DIR;
-  return path.join(userDir, id);
+function storyDir(username, id) {
+  return path.join(userDir(username), id);
 }
+
+// --- Serve index.html dynamically (inject user info) ---
+
+app.get('/', (req, res) => {
+  if (!LOCAL_MODE && (!req.oidc || !req.oidc.isAuthenticated())) {
+    // Show login page for unauthenticated users
+    return res.type('html').send(`
+      <!doctype html>
+      <html><head><title>Neo Writer</title>
+      <style>body{font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f7f7f8;}
+      .card{text-align:center;padding:40px;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
+      h1{color:#2b7cff;margin-bottom:24px;}
+      a{display:inline-block;margin:8px;padding:12px 24px;background:#2b7cff;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;}
+      a:hover{opacity:0.9;} a.secondary{background:#f0f0f2;color:#333;}</style>
+      </head><body><div class="card"><h1>Neo Writer</h1><p>Please log in to continue.</p>
+      <a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a></div></body></html>
+    `);
+  }
+
+  const username = getUsername(req) || DEFAULT_USER;
+  const displayName = getDisplayName(req) || DEFAULT_USER;
+  const localMode = LOCAL_MODE;
+
+  // Read and inject into index.html
+  const indexPath = path.join(PUBLIC_DIR, 'index.html');
+  let html = fsSync.readFileSync(indexPath, 'utf8');
+  // Replace the placeholder script block
+  html = html.replace(
+    /<!-- expose local_mode and username to the client -->\s*<script>[\s\S]*?<\/script>/,
+    `<!-- expose local_mode and username to the client -->
+  <script>
+    window.local_mode = ${localMode};
+    window.username = ${JSON.stringify(displayName)};
+  </script>`
+  );
+  res.type('html').send(html);
+});
+
+// Signup route (hosted mode)
+app.get('/signup', (req, res) => {
+  if (LOCAL_MODE) return res.redirect('/');
+  res.oidc.login({
+    returnTo: '/',
+    authorizationParams: { screen_hint: 'signup' },
+  });
+});
+
+// Apply requireUser to all API routes
+app.use('/api', requireUser);
 
 // List stories
 app.get('/api/list', async (req, res) => {
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    await ensureUserData(username);
+    const meta = await readMeta(username);
     res.json(meta);
   } catch (err) {
     console.error(err);
@@ -75,13 +197,15 @@ app.get('/api/list', async (req, res) => {
 app.post('/api/create', async (req, res) => {
   const name = (req.body && req.body.name) ? String(req.body.name) : 'Untitled';
   try {
+    const username = getUsername(req);
+    await ensureUserData(username);
     const id = uuidv4();
-    const meta = await readMeta();
-    const author = LOCAL_MODE ? DEFAULT_USER : ((req.user && req.user.username) || DEFAULT_USER);
+    const meta = await readMeta(username);
+    const author = getDisplayName(req) || username;
     meta.push({ id, name, author });
-    await writeMeta(meta);
+    await writeMeta(username, meta);
 
-    const dir = storyDir(id);
+    const dir = storyDir(username, id);
     const tilesDir = path.join(dir, 'tiles');
     const highlightsDir = path.join(dir, 'highlights');
     await fs.mkdir(tilesDir, { recursive: true });
@@ -108,11 +232,12 @@ app.post('/api/rename/:id', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'name required' });
 
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'not found' });
     item.name = name;
-    await writeMeta(meta);
+    await writeMeta(username, meta);
     res.json({ id, name });
   } catch (err) {
     console.error(err);
@@ -124,7 +249,8 @@ app.post('/api/rename/:id', async (req, res) => {
 app.get('/api/story/:id', async (req, res) => {
   const id = req.params.id;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'not found' });
     res.json({ id, name: item.name, author: item.author || DEFAULT_USER });
@@ -138,13 +264,14 @@ app.get('/api/story/:id', async (req, res) => {
 app.delete('/api/story/:id', async (req, res) => {
   const id = req.params.id;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const idx = meta.findIndex(m => m.id === id);
     if (idx === -1) return res.status(404).json({ error: 'not found' });
     meta.splice(idx, 1);
-    await writeMeta(meta);
+    await writeMeta(username, meta);
 
-    const dir = storyDir(id);
+    const dir = storyDir(username, id);
     try {
       await fs.rm(dir, { recursive: true, force: true });
     } catch (e) {
@@ -159,8 +286,8 @@ app.delete('/api/story/:id', async (req, res) => {
 
 // --- Tile order helpers ---
 
-async function readTileOrder(id) {
-  const orderFile = path.join(storyDir(id), 'tiles', '_order.json');
+async function readTileOrder(username, id) {
+  const orderFile = path.join(storyDir(username, id), 'tiles', '_order.json');
   try {
     const raw = await fs.readFile(orderFile, 'utf8');
     return JSON.parse(raw);
@@ -169,8 +296,8 @@ async function readTileOrder(id) {
   }
 }
 
-async function writeTileOrder(id, order) {
-  const orderFile = path.join(storyDir(id), 'tiles', '_order.json');
+async function writeTileOrder(username, id, order) {
+  const orderFile = path.join(storyDir(username, id), 'tiles', '_order.json');
   await fs.writeFile(orderFile, JSON.stringify(order, null, 2), 'utf8');
 }
 
@@ -178,17 +305,19 @@ async function writeTileOrder(id, order) {
 
 app.get('/api/todo', async (req, res) => {
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    await ensureUserData(username);
+    const meta = await readMeta(username);
     const unchecked = [];
     const checked = [];
 
     for (const story of meta) {
       const id = story.id;
-      const order = await readTileOrder(id);
+      const order = await readTileOrder(username, id);
       const dirs = ['tiles', 'highlights'];
 
       for (const dir of dirs) {
-        const mdDir = path.join(storyDir(id), dir);
+        const mdDir = path.join(storyDir(username, id), dir);
 
         let files = [];
         try {
@@ -262,11 +391,12 @@ app.get('/api/story/:id/todo', async (req, res) => {
   const id = req.params.id;
 
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const order = await readTileOrder(id);
+    const order = await readTileOrder(username, id);
 
     const unchecked = [];
     const checked = [];
@@ -274,7 +404,7 @@ app.get('/api/story/:id/todo', async (req, res) => {
     const dirs = ['tiles', 'highlights'];
 
     for (const dir of dirs) {
-      const mdDir = path.join(storyDir(id), dir);
+      const mdDir = path.join(storyDir(username, id), dir);
 
       let files = [];
       try {
@@ -354,11 +484,12 @@ app.post('/api/story/:id/todo/toggle', async (req, res) => {
   }
 
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), directory, filename);
+    const filePath = path.join(storyDir(username, id), directory, filename);
 
     let content = '';
     try {
@@ -394,11 +525,12 @@ app.post('/api/story/:id/todo/toggle', async (req, res) => {
 app.get('/api/story/:id/tiles', async (req, res) => {
   const id = req.params.id;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const tilesDir = path.join(storyDir(id), 'tiles');
+    const tilesDir = path.join(storyDir(username, id), 'tiles');
     let files = [];
     try {
       files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
@@ -407,7 +539,7 @@ app.get('/api/story/:id/tiles', async (req, res) => {
     }
 
     // Apply ordering from _order.json
-    const order = await readTileOrder(id);
+    const order = await readTileOrder(username, id);
     let ordered;
     if (order && Array.isArray(order)) {
       const fileSet = new Set(files);
@@ -433,11 +565,12 @@ app.get('/api/story/:id/tiles', async (req, res) => {
 app.post('/api/story/:id/tiles', async (req, res) => {
   const id = req.params.id;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const tilesDir = path.join(storyDir(id), 'tiles');
+    const tilesDir = path.join(storyDir(username, id), 'tiles');
     await fs.mkdir(tilesDir, { recursive: true });
 
     // Find the next unused chapter number
@@ -458,9 +591,9 @@ app.post('/api/story/:id/tiles', async (req, res) => {
     await fs.writeFile(filePath, '', 'utf8');
 
     // Append to order
-    const order = (await readTileOrder(id)) || files;
+    const order = (await readTileOrder(username, id)) || files;
     order.push(filename);
-    await writeTileOrder(id, order);
+    await writeTileOrder(username, id, order);
 
     res.json({ filename, name: `chapter-${num}` });
   } catch (err) {
@@ -474,11 +607,12 @@ app.get('/api/story/:id/tiles/:filename', async (req, res) => {
   const id = req.params.id;
   const filename = req.params.filename;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), 'tiles', filename);
+    const filePath = path.join(storyDir(username, id), 'tiles', filename);
     let content = '';
     try {
       content = await fs.readFile(filePath, 'utf8');
@@ -500,11 +634,12 @@ app.post('/api/story/:id/tiles/:filename/save', async (req, res) => {
     return res.status(400).json({ error: 'content required' });
   }
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), 'tiles', filename);
+    const filePath = path.join(storyDir(username, id), 'tiles', filename);
     // Verify tile exists
     try {
       await fs.access(filePath);
@@ -527,11 +662,12 @@ app.post('/api/story/:id/tiles/:filename/rename', async (req, res) => {
   if (!newName) return res.status(400).json({ error: 'name required' });
 
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const tilesDir = path.join(storyDir(id), 'tiles');
+    const tilesDir = path.join(storyDir(username, id), 'tiles');
     const oldPath = path.join(tilesDir, filename);
     try {
       await fs.access(oldPath);
@@ -557,12 +693,12 @@ app.post('/api/story/:id/tiles/:filename/rename', async (req, res) => {
       await fs.rename(oldPath, newPath);
 
       // Update _order.json
-      const order = await readTileOrder(id);
+      const order = await readTileOrder(username, id);
       if (order && Array.isArray(order)) {
         const idx = order.indexOf(filename);
         if (idx !== -1) {
           order[idx] = newFilename;
-          await writeTileOrder(id, order);
+          await writeTileOrder(username, id, order);
         }
       }
     }
@@ -579,11 +715,12 @@ app.delete('/api/story/:id/tiles/:filename', async (req, res) => {
   const id = req.params.id;
   const filename = req.params.filename;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), 'tiles', filename);
+    const filePath = path.join(storyDir(username, id), 'tiles', filename);
     try {
       await fs.unlink(filePath);
     } catch (e) {
@@ -591,12 +728,12 @@ app.delete('/api/story/:id/tiles/:filename', async (req, res) => {
     }
 
     // Remove from _order.json
-    const order = await readTileOrder(id);
+    const order = await readTileOrder(username, id);
     if (order && Array.isArray(order)) {
       const idx = order.indexOf(filename);
       if (idx !== -1) {
         order.splice(idx, 1);
-        await writeTileOrder(id, order);
+        await writeTileOrder(username, id, order);
       }
     }
 
@@ -614,11 +751,12 @@ app.post('/api/story/:id/tiles/reorder', async (req, res) => {
   if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
 
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    await writeTileOrder(id, order);
+    await writeTileOrder(username, id, order);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -632,11 +770,12 @@ app.post('/api/story/:id/tiles/reorder', async (req, res) => {
 app.get('/api/story/:id/highlights', async (req, res) => {
   const id = req.params.id;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const highlightsDir = path.join(storyDir(id), 'highlights');
+    const highlightsDir = path.join(storyDir(username, id), 'highlights');
     let files = [];
     try {
       files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
@@ -657,11 +796,12 @@ app.get('/api/story/:id/highlights', async (req, res) => {
 app.post('/api/story/:id/highlights', async (req, res) => {
   const id = req.params.id;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const highlightsDir = path.join(storyDir(id), 'highlights');
+    const highlightsDir = path.join(storyDir(username, id), 'highlights');
     await fs.mkdir(highlightsDir, { recursive: true });
 
     let files = [];
@@ -691,11 +831,12 @@ app.get('/api/story/:id/highlights/:filename', async (req, res) => {
   const id = req.params.id;
   const filename = req.params.filename;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), 'highlights', filename);
+    const filePath = path.join(storyDir(username, id), 'highlights', filename);
     let content = '';
     try {
       content = await fs.readFile(filePath, 'utf8');
@@ -717,11 +858,12 @@ app.post('/api/story/:id/highlights/:filename/save', async (req, res) => {
     return res.status(400).json({ error: 'content required' });
   }
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), 'highlights', filename);
+    const filePath = path.join(storyDir(username, id), 'highlights', filename);
     try {
       await fs.access(filePath);
     } catch (e) {
@@ -743,11 +885,12 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
   if (!newName) return res.status(400).json({ error: 'name required' });
 
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const highlightsDir = path.join(storyDir(id), 'highlights');
+    const highlightsDir = path.join(storyDir(username, id), 'highlights');
     const oldPath = path.join(highlightsDir, filename);
     try {
       await fs.access(oldPath);
@@ -776,7 +919,7 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
     }
 
     // Propagate rename into all tile files: replace oldName with newName (case-preserving)
-    const tilesDir = path.join(storyDir(id), 'tiles');
+    const tilesDir = path.join(storyDir(username, id), 'tiles');
     let tileFiles = [];
     try {
       tileFiles = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
@@ -822,11 +965,12 @@ app.delete('/api/story/:id/highlights/:filename', async (req, res) => {
   const id = req.params.id;
   const filename = req.params.filename;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), 'highlights', filename);
+    const filePath = path.join(storyDir(username, id), 'highlights', filename);
     try {
       await fs.unlink(filePath);
     } catch (e) {
@@ -846,11 +990,12 @@ app.get('/api/story/:id/pictures/:filename', async (req, res) => {
   const id = req.params.id;
   const filename = req.params.filename;
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(id), 'pictures', filename);
+    const filePath = path.join(storyDir(username, id), 'pictures', filename);
     try {
       await fs.access(filePath);
     } catch (e) {
@@ -869,7 +1014,8 @@ app.get('/api/story/:id/pictures/:filename/exists', async (req, res) => {
   const id = req.params.id;
   const filename = req.params.filename;
   try {
-    const filePath = path.join(storyDir(id), 'pictures', filename);
+    const username = getUsername(req);
+    const filePath = path.join(storyDir(username, id), 'pictures', filename);
     try {
       await fs.access(filePath);
       res.json({ exists: true });
@@ -888,11 +1034,12 @@ app.post('/api/story/:id/pictures', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'name required' });
 
   try {
-    const meta = await readMeta();
+    const username = getUsername(req);
+    const meta = await readMeta(username);
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const picturesDir = path.join(storyDir(id), 'pictures');
+    const picturesDir = path.join(storyDir(username, id), 'pictures');
     await fs.mkdir(picturesDir, { recursive: true });
 
     const sanitized = name; // trust the frontend to sanitize
@@ -941,9 +1088,27 @@ app.post('/api/story/:id/pictures', async (req, res) => {
   }
 });
 
-// Fallback to index.html for SPA navigation
+// Fallback to dynamic index.html for SPA navigation
 app.get('*', (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+  if (!LOCAL_MODE && (!req.oidc || !req.oidc.isAuthenticated())) {
+    return res.redirect('/');
+  }
+
+  const username = getUsername(req) || DEFAULT_USER;
+  const displayName = getDisplayName(req) || DEFAULT_USER;
+  const localMode = LOCAL_MODE;
+
+  const indexPath = path.join(PUBLIC_DIR, 'index.html');
+  let html = fsSync.readFileSync(indexPath, 'utf8');
+  html = html.replace(
+    /<!-- expose local_mode and username to the client -->\s*<script>[\s\S]*?<\/script>/,
+    `<!-- expose local_mode and username to the client -->
+  <script>
+    window.local_mode = ${localMode};
+    window.username = ${JSON.stringify(displayName)};
+  </script>`
+  );
+  res.type('html').send(html);
 });
 
 (async () => {

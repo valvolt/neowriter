@@ -37,8 +37,20 @@
   // Populate the header user info
   if (typeof window !== 'undefined' && userInfoEl) {
     const uname = window.username || 'anonymous';
-    const lm = window.local_mode ? 'local mode' : 'hosted mode';
-    userInfoEl.textContent = `${uname} (${lm})`;
+    // Show username (truncated if needed)
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = uname;
+    nameSpan.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+    userInfoEl.appendChild(nameSpan);
+
+    if (!window.local_mode) {
+      // Hosted mode: add logout button
+      const logoutBtn = document.createElement('button');
+      logoutBtn.textContent = 'Logout';
+      logoutBtn.style.cssText = 'font-size:0.75rem; padding:3px 10px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; cursor:pointer; flex-shrink:0;';
+      logoutBtn.addEventListener('click', () => { window.location.href = '/logout'; });
+      userInfoEl.appendChild(logoutBtn);
+    }
   }
 
   // Initial editor state

@@ -13,7 +13,7 @@ A distraction-free markdown writing tool with story management, tiles, highlight
 - **TODO-list** — All ☐ and ☑ spread through story tiles are collected in a single, editable TODO list
 - **Auto-save** — All changes are saved automatically as you type
 
-## Running
+## Running locally
 
 The recommended way to run Neo Writer is via Docker Compose:
 
@@ -25,9 +25,16 @@ Then open [http://localhost:3007](http://localhost:3007) in your browser.
 
 Data is persisted in the `./data` directory (mounted as a volume).
 
+## Hosting it
+
+Neowriter has user management: each user can access their own stories. To host it, you will have to setup an account and a 'regular web application / express' application on https://auth0.com/
+
+Rename .env.template into .env and copy/paste the provided variables there
+
+Then run the application as mentioned in the 'running locally' section
+
 ## Current limitations
 
-- **Local mode only** — Neo Writer currently runs in local/single-user mode. Multi-user hosted mode is on the TODO list.
 - **No mobile layout** — The UI is designed for desktop browsers. A responsive mobile mode is planned but not yet implemented.
 
 ## Project layout
