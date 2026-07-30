@@ -763,7 +763,7 @@
 
     // Show publish button when a story is open (only in hosted mode)
     if (togglePublishEl && !window.local_mode) {
-      togglePublishEl.style.display = '';
+      togglePublishEl.style.display = 'inline-block';
       await fetchPublishState();
     }
 
