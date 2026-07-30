@@ -2227,3 +2227,67 @@
   // Expose for debugging
   window._neo = { loadList, openTile, openHighlight, saveCurrent, renderPreview, showBinder, showStoryList };
 })();
+
+// --- Resizable Columns ---
+(function() {
+  const menu = document.getElementById('menu');
+  const editorPane = document.getElementById('editor-pane');
+  const renderPane = document.getElementById('render-pane');
+  const resizeMenu = document.getElementById('resize-menu');
+  const resizeEditor = document.getElementById('resize-editor');
+
+  if (!resizeMenu || !resizeEditor) return;
+
+  let activeHandle = null;
+  let startX = 0;
+  let startMenuWidth = 0;
+  let startEditorWidth = 0;
+  let startRenderWidth = 0;
+
+  function onMouseDown(handle) {
+    return function(e) {
+      activeHandle = handle;
+      startX = e.clientX;
+      startMenuWidth = menu.getBoundingClientRect().width;
+      startEditorWidth = editorPane.getBoundingClientRect().width;
+      startRenderWidth = renderPane.getBoundingClientRect().width;
+      handle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
+      e.preventDefault();
+    };
+  }
+
+  resizeMenu.addEventListener('mousedown', onMouseDown(resizeMenu));
+  resizeEditor.addEventListener('mousedown', onMouseDown(resizeEditor));
+
+  document.addEventListener('mousemove', function(e) {
+    if (!activeHandle) return;
+    const dx = e.clientX - startX;
+
+    if (activeHandle === resizeMenu) {
+      const newWidth = Math.max(120, Math.min(startMenuWidth + dx, window.innerWidth * 0.4));
+      menu.style.width = newWidth + 'px';
+    } else if (activeHandle === resizeEditor) {
+      const newEditorWidth = startEditorWidth + dx;
+      const newRenderWidth = startRenderWidth - dx;
+      if (newEditorWidth >= 100 && newRenderWidth >= 100) {
+        editorPane.style.flex = 'none';
+        renderPane.style.flex = 'none';
+        editorPane.style.width = newEditorWidth + 'px';
+        renderPane.style.width = newRenderWidth + 'px';
+      }
+    }
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (activeHandle) {
+      activeHandle.classList.remove('active');
+      activeHandle = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.body.style.webkitUserSelect = '';
+    }
+  });
+})();
