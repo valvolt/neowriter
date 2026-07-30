@@ -2,6 +2,15 @@
 
 A distraction-free markdown writing tool with story management, tiles, highlights, keywords, and speech-to-text.
 
+## Test it online
+Open [http://46.225.219.90:3007/](http://46.225.219.90:3007/) on your browser.
+
+Browse published stories or create your account to add yours.
+
+This app runs in HTTP (and not in HTTPS) so Auth0 will send you a warning when submitting your credentials. Just don't reuse that password for anything else.
+
+I will turn off the registration option if I see abuse.
+
 ## Features
 
 - **Stories & Tiles** — Organize your writing into stories, each containing multiple tiles (chapters/sections) that can be reordered via drag-and-drop
