@@ -20,6 +20,9 @@
   const binderHighlightsList = $('binder-highlights-list');
   const binderTodoEntry = $('binder-todo-entry');
   const todoCountBadge = $('todo-count-badge');
+  const globalTodoSection = $('global-todo-section');
+  const globalTodoEntry = $('global-todo-entry');
+  const globalTodoCountBadge = $('global-todo-count-badge');
   const btnBack = $('btn-back');
   const btnAddTile = $('btn-add-tile');
   const btnAddHighlight = $('btn-add-highlight');
@@ -47,6 +50,9 @@
 
   let currentStoryId = null;
   let currentStoryName = null;
+
+  // Global todo active state (on story list page)
+  let globalTodoActive = false;
 
   // Editing mode: 'tile' or 'highlight'
   let editMode = null;
@@ -652,6 +658,9 @@
     storyListEl.style.display = '';
     document.querySelector('.menu-controls').style.display = '';
     binderEl.style.display = 'none';
+    if (globalTodoSection) globalTodoSection.style.display = '';
+    globalTodoActive = false;
+    if (globalTodoEntry) globalTodoEntry.classList.remove('active');
     currentStoryId = null;
     currentStoryName = null;
     editMode = null;
@@ -669,6 +678,7 @@
     if (currentName) currentName.textContent = '';
     updateStats('');
     if (preview) preview.innerHTML = '';
+    refreshGlobalTodoBadge();
   }
 
   async function showBinder(storyId, storyName) {
@@ -677,8 +687,11 @@
     editMode = null;
     currentTileFilename = null;
     currentHighlightFilename = null;
+    globalTodoActive = false;
+    if (globalTodoEntry) globalTodoEntry.classList.remove('active');
     storyListEl.style.display = 'none';
     document.querySelector('.menu-controls').style.display = 'none';
+    if (globalTodoSection) globalTodoSection.style.display = 'none';
     binderEl.style.display = '';
     binderStoryName.textContent = storyName;
 
@@ -1979,6 +1992,160 @@
         startSpeech();
       }
     });
+  }
+
+  // --- Global Todo ---
+
+  async function refreshGlobalTodoBadge() {
+    try {
+      const todos = await api('/api/todo');
+      const list = Array.isArray(todos) ? todos : [];
+      const uncheckedCount = list.filter(t => !t.checked).length;
+      if (globalTodoCountBadge) {
+        if (list.length > 0) {
+          globalTodoCountBadge.textContent = uncheckedCount > 0 ? `${uncheckedCount}/${list.length}` : `\u2713 ${list.length}`;
+          globalTodoCountBadge.style.display = '';
+        } else {
+          globalTodoCountBadge.style.display = 'none';
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  async function openGlobalTodo() {
+    globalTodoActive = true;
+    if (globalTodoEntry) globalTodoEntry.classList.add('active');
+    if (editor) {
+      editor.disabled = true;
+      editor.value = '';
+    }
+    updateStats('');
+    if (openStoryEl) openStoryEl.textContent = 'Todo';
+    if (currentName) currentName.textContent = 'Todo';
+    await renderGlobalTodo();
+  }
+
+  async function renderGlobalTodo() {
+    try {
+      const todos = await api('/api/todo');
+      const list = Array.isArray(todos) ? todos : [];
+
+      // Update badge
+      const uncheckedCount = list.filter(t => !t.checked).length;
+      if (globalTodoCountBadge) {
+        if (list.length > 0) {
+          globalTodoCountBadge.textContent = uncheckedCount > 0 ? `${uncheckedCount}/${list.length}` : `\u2713 ${list.length}`;
+          globalTodoCountBadge.style.display = '';
+        } else {
+          globalTodoCountBadge.style.display = 'none';
+        }
+      }
+
+      if (!globalTodoActive) return;
+
+      if (list.length === 0) {
+        preview.innerHTML = '<p style="color:#aaa;font-style:italic;padding:12px">No todo items found across any story.</p>';
+        return;
+      }
+
+      // Render as interactive checklist grouped by story
+      const container = document.createElement('div');
+      container.style.padding = '12px';
+
+      let lastStoryId = null;
+
+      list.forEach((item) => {
+        // Add story header when story changes
+        if (item.storyId !== lastStoryId) {
+          lastStoryId = item.storyId;
+          const header = document.createElement('div');
+          header.style.fontSize = '12px';
+          header.style.fontWeight = '600';
+          header.style.color = '#666';
+          header.style.marginTop = lastStoryId === list[0].storyId ? '0' : '14px';
+          header.style.marginBottom = '6px';
+          header.style.paddingBottom = '4px';
+          header.style.borderBottom = '1px solid #eee';
+          header.style.cursor = 'pointer';
+          header.textContent = item.storyName || 'Untitled';
+          header.addEventListener('click', () => showBinder(item.storyId, item.storyName));
+          container.appendChild(header);
+        }
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'flex-start';
+        row.style.gap = '8px';
+        row.style.marginBottom = '8px';
+        row.style.opacity = item.checked ? '0.5' : '1';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = item.checked;
+        cb.style.marginTop = '3px';
+        cb.style.cursor = 'pointer';
+        cb.style.flexShrink = '0';
+
+        cb.addEventListener('change', async () => {
+          try {
+            await api(`/api/story/${item.storyId}/todo/toggle`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ directory: item.directory, filename: item.filename, lineIndex: item.lineIndex, checked: cb.checked })
+            });
+            await renderGlobalTodo();
+          } catch (e) {
+            console.error('global todo toggle failed', e);
+            cb.checked = !cb.checked; // revert
+          }
+        });
+
+        const label = document.createElement('span');
+        label.textContent = item.text;
+        label.style.fontSize = '14px';
+        label.style.lineHeight = '1.5';
+        label.style.cursor = 'pointer';
+        if (item.checked) label.style.textDecoration = 'line-through';
+
+        const source = document.createElement('span');
+        source.textContent = (item.storyName || 'Untitled') + ' \u2013 ' + item.filename.replace(/\.md$/, '');
+        source.style.fontSize = '11px';
+        source.style.color = '#aaa';
+        source.style.marginLeft = 'auto';
+        source.style.paddingLeft = '8px';
+        source.style.flexShrink = '0';
+        source.style.cursor = 'pointer';
+        if (item.directory === 'highlights') source.style.fontStyle = 'italic';
+
+        // Navigate to the story and file on click
+        const navigateToItem = async () => {
+          await showBinder(item.storyId, item.storyName);
+          if (item.directory === 'highlights') {
+            await openHighlight(item.filename, item.lineIndex);
+          } else {
+            openTile(item.filename, item.lineIndex);
+          }
+        };
+
+        label.addEventListener('click', navigateToItem);
+        source.addEventListener('click', navigateToItem);
+
+        row.appendChild(cb);
+        row.appendChild(label);
+        row.appendChild(source);
+        container.appendChild(row);
+      });
+
+      preview.innerHTML = '';
+      preview.appendChild(container);
+    } catch (e) {
+      console.error('render global todo failed', e);
+    }
+  }
+
+  // Global todo entry click
+  if (globalTodoEntry) {
+    globalTodoEntry.addEventListener('click', openGlobalTodo);
   }
 
   // --- Initial load ---

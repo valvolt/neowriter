@@ -174,7 +174,88 @@ async function writeTileOrder(id, order) {
   await fs.writeFile(orderFile, JSON.stringify(order, null, 2), 'utf8');
 }
 
-// --- Todo endpoint ---
+// --- Global Todo endpoint (all stories) ---
+
+app.get('/api/todo', async (req, res) => {
+  try {
+    const meta = await readMeta();
+    const unchecked = [];
+    const checked = [];
+
+    for (const story of meta) {
+      const id = story.id;
+      const order = await readTileOrder(id);
+      const dirs = ['tiles', 'highlights'];
+
+      for (const dir of dirs) {
+        const mdDir = path.join(storyDir(id), dir);
+
+        let files = [];
+        try {
+          files = (await fs.readdir(mdDir)).filter(f => f.endsWith('.md'));
+        } catch (e) {
+          continue;
+        }
+
+        let ordered = files;
+        if (dir === 'tiles' && order && Array.isArray(order)) {
+          const fileSet = new Set(files);
+          ordered = order.filter(f => fileSet.has(f));
+          for (const f of files) {
+            if (!order.includes(f)) ordered.push(f);
+          }
+        }
+
+        for (const filename of ordered) {
+          const filePath = path.join(mdDir, filename);
+
+          let content = '';
+          try {
+            content = await fs.readFile(filePath, 'utf8');
+          } catch (e) {
+            continue;
+          }
+
+          const lines = content.split('\n');
+
+          lines.forEach((line, lineIndex) => {
+            const uncheckedMatch = line.match(/^(\s*)-\s\[ \]\s(.+)$/);
+            const checkedMatch = line.match(/^(\s*)-\s\[x\]\s(.+)$/i);
+
+            if (uncheckedMatch) {
+              unchecked.push({
+                text: uncheckedMatch[2].trim(),
+                checked: false,
+                filename,
+                directory: dir,
+                lineIndex,
+                storyId: id,
+                storyName: story.name
+              });
+            } else if (checkedMatch) {
+              checked.push({
+                text: checkedMatch[2].trim(),
+                checked: true,
+                filename,
+                directory: dir,
+                lineIndex,
+                storyId: id,
+                storyName: story.name
+              });
+            }
+          });
+        }
+      }
+    }
+
+    res.json([...unchecked, ...checked]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to aggregate global todos' });
+  }
+});
+
+// --- Per-story Todo endpoint ---
 
 // Aggregate all task list items from all tiles and highlights, unchecked first
 app.get('/api/story/:id/todo', async (req, res) => {
