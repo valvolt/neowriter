@@ -214,8 +214,8 @@
     return result;
   }
 
-  // Render markdown text into the preview pane with optional scroll fraction
-  function renderMarkdownToPreview(text, scrollFraction) {
+  // Render markdown text into the preview pane (no scrolling — scroll is handled separately)
+  function renderMarkdownToPreview(text) {
     const processed = preprocessMarkdown(text || '');
     const html = (typeof marked !== 'undefined' && typeof marked.parse === 'function') ? marked.parse(processed) : (processed);
     const container = document.createElement('div');
@@ -247,11 +247,127 @@
     preview.innerHTML = container.innerHTML;
 
     try { renderMermaidDiagrams(preview); } catch (e) { console.error('renderMermaidDiagrams error', e); }
+  }
 
-    if (typeof scrollFraction === 'number' && isFinite(scrollFraction)) {
-      const maxScroll = preview.scrollHeight - preview.clientHeight;
-      preview.scrollTop = Math.max(0, Math.min(maxScroll, scrollFraction * preview.scrollHeight));
+  // --- Cursor-based scroll synchronization ---
+  // Uses marked.lexer() tokens to map cursor line to the corresponding rendered DOM element
+
+  function scrollPreviewToCursorPosition() {
+    if (!editMode || editMode === 'todo') return;
+    if (typeof marked === 'undefined' || typeof marked.lexer !== 'function') return;
+
+    const fullText = (editMode === 'tile') ? getFullStoryText() : (editor.value || '');
+    if (!fullText) return;
+
+    // Compute cursor's character offset in the full text
+    let cursorOffset;
+    if (editMode === 'tile') {
+      if (!currentTileFilename || !tilesOrder.length) return;
+      let offsetBefore = 0;
+      for (const f of tilesOrder) {
+        if (f === currentTileFilename) break;
+        offsetBefore += (tilesCache[f] || '').length + 2; // +2 for \n\n join
+      }
+      cursorOffset = offsetBefore + (editor.selectionStart || 0);
+    } else {
+      cursorOffset = editor.selectionStart || 0;
     }
+    cursorOffset = Math.min(cursorOffset, fullText.length);
+
+    const processed = preprocessMarkdown(fullText);
+    let tokens;
+    try {
+      tokens = marked.lexer(processed);
+    } catch (e) {
+      return;
+    }
+    if (!tokens || tokens.length === 0) return;
+
+    // Map cursor offset from original text to processed text position
+    // preprocessMarkdown replaces *** (3 chars) with NEOWRITER_DINKUS (16 chars) on standalone lines
+    // and - (2 chars) with \u2014  (2 chars) — same length
+    // Count *** occurrences before cursor to adjust offset
+    let processedCursorOffset = cursorOffset;
+    const dinkusRegex = /^\*{3}$/gm;
+    let dMatch;
+    const textBeforeCursor = fullText.substring(0, cursorOffset);
+    let dinkusCount = 0;
+    while ((dMatch = dinkusRegex.exec(textBeforeCursor)) !== null) {
+      dinkusCount++;
+    }
+    processedCursorOffset += dinkusCount * (16 - 3); // each *** → NEOWRITER_DINKUS adds 13 chars
+
+    // Find which token contains the cursor offset using character positions
+    let accumulated = 0;
+    let targetTokenIndex = tokens.length - 1;
+    let intraTokenFraction = 1;
+
+    for (let i = 0; i < tokens.length; i++) {
+      const tokenLen = (tokens[i].raw || '').length;
+      if (accumulated + tokenLen > processedCursorOffset) {
+        targetTokenIndex = i;
+        intraTokenFraction = tokenLen > 0 ? (processedCursorOffset - accumulated) / tokenLen : 0;
+        break;
+      }
+      accumulated += tokenLen;
+    }
+
+    // Map token index to DOM element index (skip 'space' tokens that don't produce elements)
+    let domIndex = 0;
+    let totalNonSpaceTokens = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].type !== 'space') {
+        if (i < targetTokenIndex) domIndex++;
+        totalNonSpaceTokens++;
+      }
+    }
+    // If the target token itself is a space, use the next rendered element
+    if (tokens[targetTokenIndex] && tokens[targetTokenIndex].type === 'space') {
+      intraTokenFraction = 0;
+    }
+
+    // Get the corresponding DOM element from preview's children
+    const children = preview.children;
+    if (!children || children.length === 0) return;
+
+    // Use proportional mapping when token count doesn't match DOM children count
+    // (some tokens like inline 'html' don't produce separate block elements)
+    let actualIndex;
+    if (totalNonSpaceTokens === children.length) {
+      // Perfect 1:1 mapping
+      actualIndex = Math.min(domIndex, children.length - 1);
+    } else {
+      // Proportional mapping: scale domIndex to fit actual children count
+      actualIndex = Math.round((domIndex / Math.max(1, totalNonSpaceTokens)) * children.length);
+      actualIndex = Math.max(0, Math.min(actualIndex, children.length - 1));
+    }
+
+    const targetEl = children[actualIndex];
+    if (!targetEl) return;
+
+    // Calculate scroll position to center the element (with intra-token offset)
+    const elTop = targetEl.offsetTop;
+    const elHeight = targetEl.offsetHeight;
+    const paneHeight = preview.clientHeight;
+
+    // Target: put the cursor's approximate position within the element at the center of the pane
+    const targetY = elTop + (elHeight * intraTokenFraction) - (paneHeight / 2);
+    const maxScroll = preview.scrollHeight - paneHeight;
+
+    // Debug logging (uncomment to diagnose scroll sync issues)
+    // console.log('[scroll-sync]', {
+    //   cursorOffset, processedCursorOffset, fullTextLen: fullText.length,
+    //   tokenCount: tokens.length, targetTokenIndex,
+    //   targetTokenType: tokens[targetTokenIndex] ? tokens[targetTokenIndex].type : '?',
+    //   targetTokenRawStart: tokens[targetTokenIndex] ? (tokens[targetTokenIndex].raw || '').substring(0, 40) : '',
+    //   intraTokenFraction: intraTokenFraction.toFixed(3),
+    //   domIndex, totalNonSpaceTokens, actualIndex, childrenCount: children.length,
+    //   targetElTag: targetEl.tagName, targetElText: targetEl.textContent.substring(0, 30),
+    //   elTop, elHeight, paneHeight, scrollHeight: preview.scrollHeight, maxScroll,
+    //   targetY: targetY.toFixed(0), finalScrollTop: Math.max(0, Math.min(maxScroll, targetY)).toFixed(0)
+    // });
+
+    preview.scrollTop = Math.max(0, Math.min(maxScroll, targetY));
   }
 
   // --- Full-story rendering (tiles mode) ---
@@ -260,34 +376,16 @@
     return tilesOrder.map(f => tilesCache[f] || '').join('\n\n');
   }
 
-  function getCursorScrollFraction() {
-    if (!currentTileFilename || !tilesOrder.length) return 0;
-    let offsetBefore = 0;
-    for (const f of tilesOrder) {
-      if (f === currentTileFilename) break;
-      offsetBefore += (tilesCache[f] || '').length + 2;
-    }
-    const cursorInTile = editor.selectionStart || 0;
-    const totalOffset = offsetBefore + cursorInTile;
-    const fullLength = getFullStoryText().length;
-    if (fullLength === 0) return 0;
-    return totalOffset / fullLength;
-  }
-
   function renderFullStory() {
     const fullText = getFullStoryText();
-    const fraction = getCursorScrollFraction();
-    renderMarkdownToPreview(fullText, fraction);
+    renderMarkdownToPreview(fullText);
   }
 
   // --- Single-highlight rendering (highlight mode) ---
 
   function renderCurrentHighlight() {
     const text = editor.value || '';
-    // Simple proportional scroll based on cursor position in the highlight
-    const cursorPos = editor.selectionStart || 0;
-    const fraction = text.length > 0 ? cursorPos / text.length : 0;
-    renderMarkdownToPreview(text, fraction);
+    renderMarkdownToPreview(text);
   }
 
   // --- Keyword pill rendering ---
@@ -623,7 +721,7 @@
     } else {
       // No active edit — show full story if we have tiles
       if (tilesOrder.length > 0) {
-        renderMarkdownToPreview(getFullStoryText(), 0);
+        renderMarkdownToPreview(getFullStoryText());
       } else {
         preview.innerHTML = '';
       }
@@ -633,6 +731,10 @@
     if (highlightsRenderEnabled) {
       highlightWordsInPreview();
     }
+    // Scroll preview to the cursor's corresponding position in the rendered output
+    // Use a short delay to allow mermaid diagrams to finish rendering (they change scrollHeight)
+    scrollPreviewToCursorPosition();
+    setTimeout(scrollPreviewToCursorPosition, 150);
   }
 
   // Fetch all tile contents for the current story
