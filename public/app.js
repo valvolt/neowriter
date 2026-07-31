@@ -731,10 +731,6 @@
     if (highlightsRenderEnabled) {
       highlightWordsInPreview();
     }
-    // Scroll preview to the cursor's corresponding position in the rendered output
-    // Use a short delay to allow mermaid diagrams to finish rendering (they change scrollHeight)
-    scrollPreviewToCursorPosition();
-    setTimeout(scrollPreviewToCursorPosition, 150);
   }
 
   // Fetch all tile contents for the current story
@@ -1660,12 +1656,20 @@
     saveCurrent();
   });
 
-  editor.addEventListener('click', () => {
-    if (editMode) renderPreview();
+  editor.addEventListener('dblclick', () => {
+    if (editMode) {
+      renderPreview();
+      scrollPreviewToCursorPosition();
+      setTimeout(scrollPreviewToCursorPosition, 150);
+    }
   });
   editor.addEventListener('keyup', (ev) => {
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown'].includes(ev.key)) {
-      if (editMode) renderPreview();
+      if (editMode) {
+        renderPreview();
+        scrollPreviewToCursorPosition();
+        setTimeout(scrollPreviewToCursorPosition, 150);
+      }
     }
   });
 

@@ -19,6 +19,7 @@ I will turn off the registration option if I see abuse.
 - **Keywords** — Tag highlights with `‡keyword` markers; keywords render as colored pills and determine highlight colors in the preview
 - **Speech-to-text** — Dictate text using the browser's SpeechRecognition API with real-time ghost preview and multi-language support
 - **Context menu** — Right-click to insert tables, links, pictures, keywords, or create highlights from selected text
+- **Content sync** — Double click anywhere on your text to auto-scroll the rendering page to your current location
 - **TODO-list** — All ☐ and ☑ spread through story tiles are collected in a single, editable TODO list
 - **Auto-save** — All changes are saved automatically as you type
 - **Publishing** — Make your stories visible/hidden to unauthenticated users
