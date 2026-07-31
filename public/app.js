@@ -1667,8 +1667,10 @@
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End','PageUp','PageDown'].includes(ev.key)) {
       if (editMode) {
         renderPreview();
-        scrollPreviewToCursorPosition();
-        setTimeout(scrollPreviewToCursorPosition, 150);
+        if (['Home','End','PageUp','PageDown'].includes(ev.key)) {
+          scrollPreviewToCursorPosition();
+          setTimeout(scrollPreviewToCursorPosition, 150);
+        }
       }
     }
   });
