@@ -710,6 +710,130 @@
   // Also hide tooltip on scroll
   preview.addEventListener('scroll', hideHighlightTooltip);
 
+  // --- Preview double-click: navigate editor to clicked position ---
+  preview.addEventListener('dblclick', (ev) => {
+    if (!editMode || editMode === 'todo') return;
+    if (typeof marked === 'undefined' || typeof marked.lexer !== 'function') return;
+
+    // Find the closest top-level child of preview that was clicked
+    let targetEl = ev.target;
+    while (targetEl && targetEl.parentElement !== preview) {
+      targetEl = targetEl.parentElement;
+    }
+    if (!targetEl || targetEl.parentElement !== preview) return;
+
+    // Find the index of this element among preview's children
+    const children = Array.from(preview.children);
+    const clickedIndex = children.indexOf(targetEl);
+    if (clickedIndex < 0) return;
+
+    const fullText = (editMode === 'tile') ? getFullStoryText() : (editor.value || '');
+    if (!fullText) return;
+
+    const processed = preprocessMarkdown(fullText);
+    let tokens;
+    try {
+      tokens = marked.lexer(processed);
+    } catch (e) {
+      return;
+    }
+    if (!tokens || tokens.length === 0) return;
+
+    // Count non-space tokens (same logic as scrollPreviewToCursorPosition)
+    let totalNonSpaceTokens = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].type !== 'space') totalNonSpaceTokens++;
+    }
+
+    // Reverse-map: clicked DOM index → token index
+    let targetTokenIndex;
+    if (totalNonSpaceTokens === children.length) {
+      // Perfect 1:1 mapping — find the Nth non-space token
+      let count = 0;
+      targetTokenIndex = 0;
+      for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].type !== 'space') {
+          if (count === clickedIndex) { targetTokenIndex = i; break; }
+          count++;
+        }
+      }
+    } else {
+      // Proportional mapping (reverse of the forward mapping)
+      const proportionalTokenPos = (clickedIndex / Math.max(1, children.length)) * totalNonSpaceTokens;
+      let count = 0;
+      targetTokenIndex = 0;
+      for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].type !== 'space') {
+          if (count >= Math.round(proportionalTokenPos)) { targetTokenIndex = i; break; }
+          count++;
+        }
+        if (i === tokens.length - 1) targetTokenIndex = i;
+      }
+    }
+
+    // Compute character offset at the start of this token in the processed text
+    let processedOffset = 0;
+    for (let i = 0; i < targetTokenIndex; i++) {
+      processedOffset += (tokens[i].raw || '').length;
+    }
+
+    // Map processed offset back to original text offset
+    // (reverse the dinkus adjustment: each NEOWRITER_DINKUS in processed = *** in original)
+    let originalOffset = processedOffset;
+    const dinkusRegex = /NEOWRITER_DINKUS/g;
+    const processedBeforeOffset = processed.substring(0, processedOffset);
+    let dinkusCount = 0;
+    let dm;
+    while ((dm = dinkusRegex.exec(processedBeforeOffset)) !== null) {
+      dinkusCount++;
+    }
+    originalOffset -= dinkusCount * (16 - 3); // reverse: subtract the 13 chars added per dinkus
+
+    originalOffset = Math.max(0, Math.min(originalOffset, fullText.length));
+
+    if (editMode === 'tile') {
+      // Determine which tile contains this offset
+      let accumulated = 0;
+      let targetTileFilename = tilesOrder[0];
+      let offsetInTile = originalOffset;
+
+      for (const f of tilesOrder) {
+        const tileLen = (tilesCache[f] || '').length;
+        if (accumulated + tileLen >= originalOffset) {
+          targetTileFilename = f;
+          offsetInTile = originalOffset - accumulated;
+          break;
+        }
+        accumulated += tileLen + 2; // +2 for \n\n join
+      }
+
+      // Compute line number within the tile
+      const tileContent = tilesCache[targetTileFilename] || '';
+      let lineIndex = 0;
+      for (let i = 0; i < offsetInTile && i < tileContent.length; i++) {
+        if (tileContent[i] === '\n') lineIndex++;
+      }
+
+      // Open the tile at that line
+      openTile(targetTileFilename, lineIndex);
+    } else if (editMode === 'highlight') {
+      // Position cursor in the current highlight
+      const content = editor.value || '';
+      let lineIndex = 0;
+      for (let i = 0; i < originalOffset && i < content.length; i++) {
+        if (content[i] === '\n') lineIndex++;
+      }
+      const lines = content.split('\n');
+      let charPos = 0;
+      for (let i = 0; i < lineIndex && i < lines.length; i++) {
+        charPos += lines[i].length + 1;
+      }
+      editor.selectionStart = charPos;
+      editor.selectionEnd = charPos;
+      editor.focus();
+    }
+  });
+
   // --- Render dispatcher ---
 
   function renderPreview() {
