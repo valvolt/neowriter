@@ -1099,6 +1099,7 @@
           }
         }
         loadTilesList();
+        openTile(res.filename || tile.filename);
       } catch (e) {
         console.error('rename tile failed', e);
         alert('Rename tile failed');
@@ -1357,6 +1358,7 @@
         await fetchHighlightsList();
         loadHighlightsList();
         renderPreview();
+        openHighlight(res.filename || hl.filename);
       } catch (e) {
         console.error('rename highlight failed', e);
         alert('Rename highlight failed');
