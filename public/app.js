@@ -2056,14 +2056,9 @@
   });
 
   picDialogOk.addEventListener('click', async () => {
-    const baseName = picDialogName.value.trim();
+    let baseName = picDialogName.value.trim();
     const urlValue = picDialogUrl.value.trim();
     const fileValue = picDialogFile.files[0];
-
-    if (!baseName) {
-      alert('Please provide a name for the picture.');
-      return;
-    }
 
     // Determine source: file takes priority over URL
     let extension = '';
@@ -2074,6 +2069,10 @@
       // Get extension from the uploaded file
       const parts = fileValue.name.split('.');
       extension = parts.length > 1 ? '.' + parts.pop().toLowerCase() : '';
+      // Derive name from file if not provided
+      if (!baseName) {
+        baseName = parts.join('.'); // remaining parts after removing extension
+      }
     } else if (urlValue) {
       source = 'url';
       // Try to extract extension from URL
@@ -2081,13 +2080,22 @@
         const urlPath = new URL(urlValue).pathname;
         const urlParts = urlPath.split('/').pop().split('.');
         extension = urlParts.length > 1 ? '.' + urlParts.pop().toLowerCase() : '.png';
+        // Derive name from URL if not provided
+        if (!baseName) {
+          const urlFilename = urlParts.join('.');
+          baseName = (urlFilename && urlFilename.length > 1 && !/^[?&]/.test(urlFilename)) ? urlFilename : 'image';
+        }
       } catch (e) {
         extension = '.png';
+        if (!baseName) baseName = 'image';
       }
     } else {
       alert('Please upload a file or provide a URL.');
       return;
     }
+
+    // Final fallback
+    if (!baseName) baseName = 'image';
 
     const fullFilename = baseName + extension;
 
@@ -2136,16 +2144,23 @@
     }
   }
 
-  async function uploadPictureFromUrl(name, url) {
+  async function uploadPictureFromUrl(name, url, overwrite) {
     if (!currentStoryId) return;
     try {
       const res = await api(`/api/story/${currentStoryId}/pictures`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, url })
+        body: JSON.stringify({ name, url, overwrite: !!overwrite })
       });
       if (res.ok && res.path) {
         insertPictureMarkdown(res.filename || name, res.path);
+      } else if (res.error && res.error.startsWith('EXISTS:')) {
+        // Server detected file already exists after extension correction
+        const existingFilename = res.error.substring(7);
+        const doOverwrite = confirm(`A picture named "${existingFilename}" already exists. Overwrite?`);
+        if (doOverwrite) {
+          await uploadPictureFromUrl(name, url, true);
+        }
       } else {
         alert(res.error || 'Failed to upload picture from URL');
       }

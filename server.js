@@ -1134,7 +1134,7 @@ app.get('/api/story/:id/pictures/:filename/exists', async (req, res) => {
 app.post('/api/story/:id/pictures', async (req, res) => {
   const id = req.params.id;
   const { name, data, url } = req.body || {};
-  if (!name) return res.status(400).json({ error: 'name required' });
+  if (!name) return res.status(400).json({ error: 'name required (provide a filename for the picture)' });
 
   try {
     const username = getUsername(req);
@@ -1209,6 +1209,17 @@ app.post('/api/story/:id/pictures', async (req, res) => {
                 response.on('end', async () => {
                   const buffer = Buffer.concat(chunks);
                   const actualPath = path.join(picturesDir, actualFilename);
+                  // Check if file already exists (unless overwrite is requested)
+                  if (!req.body.overwrite) {
+                    try {
+                      await fs.access(actualPath);
+                      // File exists — reject with EXISTS error
+                      reject(new Error('EXISTS:' + actualFilename));
+                      return;
+                    } catch (e) {
+                      // File doesn't exist — proceed
+                    }
+                  }
                   await fs.writeFile(actualPath, buffer);
                   resolve();
                 });
@@ -1220,10 +1231,15 @@ app.post('/api/story/:id/pictures', async (req, res) => {
         });
         res.json({ ok: true, filename: actualFilename, path: `/api/story/${id}/pictures/${encodeURIComponent(actualFilename)}` });
       } catch (e) {
-        console.error('Failed to download image from URL', e);
-        if (e.message === 'NOT_IMAGE') {
+        if (e.message && e.message.startsWith('EXISTS:')) {
+          // File already exists — return structured response for client to handle
+          const existingFilename = e.message.substring(7);
+          res.json({ ok: false, error: 'EXISTS:' + existingFilename });
+        } else if (e.message === 'NOT_IMAGE') {
+          console.error('Failed to download image from URL', e);
           res.status(400).json({ error: 'Could not download the image (the server may be blocking automated downloads). Please save the file to your disk first, then upload it.' });
         } else {
+          console.error('Failed to download image from URL', e);
           res.status(400).json({ error: 'Failed to download from URL. Please save the file to your disk first, then upload it.' });
         }
       }
