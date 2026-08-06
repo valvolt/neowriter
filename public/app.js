@@ -1086,7 +1086,9 @@
     storyListEl.innerHTML = '';
     try {
       const list = await api('/api/list');
-      (Array.isArray(list) ? list : []).forEach(item => {
+      const items = Array.isArray(list) ? list : [];
+      items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      items.forEach(item => {
         storyListEl.appendChild(buildStoryItem(item));
       });
     } catch (e) {
