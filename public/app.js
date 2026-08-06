@@ -2145,9 +2145,9 @@
         body: JSON.stringify({ name, url })
       });
       if (res.ok && res.path) {
-        insertPictureMarkdown(name, res.path);
+        insertPictureMarkdown(res.filename || name, res.path);
       } else {
-        alert('Failed to upload picture from URL');
+        alert(res.error || 'Failed to upload picture from URL');
       }
     } catch (e) {
       console.error('upload picture from URL failed', e);

@@ -1155,20 +1155,61 @@ app.post('/api/story/:id/pictures', async (req, res) => {
       res.json({ ok: true, filename: sanitized, path: `/api/story/${id}/pictures/${sanitized}` });
     } else if (url) {
       // Download from URL using native http/https
+      // Detect actual content type from response to correct the file extension
+      const contentTypeToExt = {
+        'image/webp': '.webp',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/svg+xml': '.svg',
+        'image/bmp': '.bmp',
+        'image/tiff': '.tiff',
+        'image/avif': '.avif',
+        'image/heic': '.heic',
+        'image/heif': '.heif'
+      };
       try {
         const downloadUrl = new URL(url);
         const httpMod = downloadUrl.protocol === 'https:' ? require('https') : require('http');
+        let actualFilename = sanitized;
         await new Promise((resolve, reject) => {
           const doGet = (targetUrl) => {
-            httpMod.get(targetUrl, (response) => {
+            const mod = (typeof targetUrl === 'string' && targetUrl.startsWith('https:')) ? require('https') : httpMod;
+            const reqOpts = typeof targetUrl === 'string' ? targetUrl : targetUrl;
+            const parsedUrl = new URL(typeof targetUrl === 'string' ? targetUrl : url);
+            const options = {
+              hostname: parsedUrl.hostname,
+              path: parsedUrl.pathname + parsedUrl.search,
+              headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+            };
+            mod.get(options, (response) => {
               if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
                 doGet(response.headers.location);
+              } else if (response.statusCode !== 200) {
+                reject(new Error(`Server returned status ${response.statusCode}`));
               } else {
+                // Detect actual content type and validate it's an image
+                const contentType = (response.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+                if (!contentType || !contentType.startsWith('image/')) {
+                  reject(new Error('NOT_IMAGE'));
+                  response.resume(); // drain the response
+                  return;
+                }
+                if (contentTypeToExt[contentType]) {
+                  const correctExt = contentTypeToExt[contentType];
+                  // Replace the extension in the filename if it differs
+                  const currentExt = path.extname(actualFilename).toLowerCase();
+                  if (currentExt !== correctExt) {
+                    const baseName = actualFilename.substring(0, actualFilename.length - currentExt.length);
+                    actualFilename = baseName + correctExt;
+                  }
+                }
                 const chunks = [];
                 response.on('data', chunk => chunks.push(chunk));
                 response.on('end', async () => {
                   const buffer = Buffer.concat(chunks);
-                  await fs.writeFile(filePath, buffer);
+                  const actualPath = path.join(picturesDir, actualFilename);
+                  await fs.writeFile(actualPath, buffer);
                   resolve();
                 });
                 response.on('error', reject);
@@ -1177,10 +1218,14 @@ app.post('/api/story/:id/pictures', async (req, res) => {
           };
           doGet(url);
         });
-        res.json({ ok: true, filename: sanitized, path: `/api/story/${id}/pictures/${sanitized}` });
+        res.json({ ok: true, filename: actualFilename, path: `/api/story/${id}/pictures/${encodeURIComponent(actualFilename)}` });
       } catch (e) {
         console.error('Failed to download image from URL', e);
-        res.status(400).json({ error: 'failed to download from URL' });
+        if (e.message === 'NOT_IMAGE') {
+          res.status(400).json({ error: 'Could not download the image (the server may be blocking automated downloads). Please save the file to your disk first, then upload it.' });
+        } else {
+          res.status(400).json({ error: 'Failed to download from URL. Please save the file to your disk first, then upload it.' });
+        }
       }
     } else {
       res.status(400).json({ error: 'data or url required' });
