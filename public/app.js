@@ -74,6 +74,9 @@
   // Full-story rendering state
   let tilesOrder = [];
   let tilesCache = {};
+  // Display names cache: filename -> display name (from server)
+  let tileNamesCache = {};
+  let highlightNamesCache = {};
 
   // Highlights list (sorted alphabetically, fetched from server)
   let highlightsList = [];
@@ -865,6 +868,8 @@
       const tilesList = Array.isArray(tiles) ? tiles : [];
       tilesOrder = tilesList.map(t => t.filename);
       tilesCache = {};
+      tileNamesCache = {};
+      tilesList.forEach(t => { tileNamesCache[t.filename] = t.name; });
       await Promise.all(tilesList.map(async (tile) => {
         try {
           const res = await api(`/api/story/${currentStoryId}/tiles/${tile.filename}`);
@@ -884,6 +889,8 @@
     try {
       const hl = await api(`/api/story/${currentStoryId}/highlights`);
       highlightsList = Array.isArray(hl) ? hl : [];
+      highlightNamesCache = {};
+      highlightsList.forEach(h => { highlightNamesCache[h.filename] = h.name; });
     } catch (e) {
       console.error('failed to fetch highlights', e);
       highlightsList = [];
@@ -1116,7 +1123,7 @@
     binderTilesList.innerHTML = '';
     if (!currentStoryId) return;
     tilesOrder.forEach(filename => {
-      const tile = { filename, name: filename.replace(/\.md$/, '') };
+      const tile = { filename, name: tileNamesCache[filename] || filename.replace(/\.md$/, '') };
       binderTilesList.appendChild(buildTileItem(tile));
     });
   }
@@ -1214,14 +1221,17 @@
         if (res.filename && res.filename !== tile.filename) {
           const content = tilesCache[tile.filename] || '';
           delete tilesCache[tile.filename];
+          delete tileNamesCache[tile.filename];
           tilesCache[res.filename] = content;
           const idx = tilesOrder.indexOf(tile.filename);
           if (idx !== -1) tilesOrder[idx] = res.filename;
           if (currentTileFilename === tile.filename) {
             currentTileFilename = res.filename;
-            updateBreadcrumb();
           }
         }
+        // Update display name cache
+        tileNamesCache[res.filename || tile.filename] = res.name || newName;
+        updateBreadcrumb();
         loadTilesList();
         openTile(res.filename || tile.filename);
       } catch (e) {
@@ -1721,9 +1731,9 @@
     const storyLabel = currentStoryName || '';
     let itemLabel = '';
     if (editMode === 'tile' && currentTileFilename) {
-      itemLabel = currentTileFilename.replace(/\.md$/, '');
+      itemLabel = tileNamesCache[currentTileFilename] || currentTileFilename.replace(/\.md$/, '');
     } else if (editMode === 'highlight' && currentHighlightFilename) {
-      itemLabel = currentHighlightFilename.replace(/\.md$/, '');
+      itemLabel = highlightNamesCache[currentHighlightFilename] || currentHighlightFilename.replace(/\.md$/, '');
     } else if (editMode === 'todo') {
       itemLabel = 'Todo';
     }

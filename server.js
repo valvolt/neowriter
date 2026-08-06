@@ -75,9 +75,13 @@ function requireUser(req, res, next) {
 }
 
 // Sanitize a user-provided name into a safe filename (without extension).
-// Lowercase, replace spaces/underscores with hyphens, strip non-alphanumeric (except hyphens), collapse multiple hyphens, trim hyphens.
+// Normalize Unicode (NFD) to strip accents, lowercase, replace spaces/underscores with hyphens,
+// strip non-alphanumeric (except hyphens), collapse multiple hyphens, trim hyphens.
 function sanitizeFilename(name) {
-  let s = String(name).trim().toLowerCase();
+  let s = String(name).trim();
+  // NFD decomposition: split accented chars into base + combining mark, then strip combining marks
+  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  s = s.toLowerCase();
   s = s.replace(/[\s_]+/g, '-');
   s = s.replace(/[^a-z0-9\-]/g, '');
   s = s.replace(/-{2,}/g, '-');
@@ -336,6 +340,29 @@ async function writeTileOrder(username, id, order) {
   await fs.writeFile(orderFile, JSON.stringify(order, null, 2), 'utf8');
 }
 
+// --- Display names helpers (_names.json) ---
+
+async function readNames(dirPath) {
+  const namesFile = path.join(dirPath, '_names.json');
+  try {
+    const raw = await fs.readFile(namesFile, 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    return {}; // no names file yet — fallback to filename-derived names
+  }
+}
+
+async function writeNames(dirPath, names) {
+  const namesFile = path.join(dirPath, '_names.json');
+  await fs.writeFile(namesFile, JSON.stringify(names, null, 2), 'utf8');
+}
+
+// Get display name for a file: check _names.json, fallback to filename without .md
+function getDisplayNameForFile(names, filename) {
+  if (names && names[filename]) return names[filename];
+  return filename.replace(/\.md$/, '');
+}
+
 // --- Global Todo endpoint (all stories) ---
 
 app.get('/api/todo', async (req, res) => {
@@ -588,7 +615,9 @@ app.get('/api/story/:id/tiles', async (req, res) => {
       ordered = files;
     }
 
-    const tiles = ordered.map(f => ({ filename: f, name: f.replace(/\.md$/, '') }));
+    // Read display names
+    const names = await readNames(tilesDir);
+    const tiles = ordered.map(f => ({ filename: f, name: getDisplayNameForFile(names, f) }));
     res.json(tiles);
   } catch (err) {
     console.error(err);
@@ -647,14 +676,16 @@ app.get('/api/story/:id/tiles/:filename', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), 'tiles', filename);
+    const tilesDir = path.join(storyDir(username, id), 'tiles');
+    const filePath = path.join(tilesDir, filename);
     let content = '';
     try {
       content = await fs.readFile(filePath, 'utf8');
     } catch (e) {
       return res.status(404).json({ error: 'tile not found' });
     }
-    res.json({ filename, name: filename.replace(/\.md$/, ''), content });
+    const names = await readNames(tilesDir);
+    res.json({ filename, name: getDisplayNameForFile(names, filename), content });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed to read tile' });
@@ -738,6 +769,14 @@ app.post('/api/story/:id/tiles/:filename/rename', async (req, res) => {
       }
     }
 
+    // Save display name in _names.json (remove old entry if filename changed)
+    const names = await readNames(tilesDir);
+    if (newFilename !== filename) {
+      delete names[filename];
+    }
+    names[newFilename] = newName;
+    await writeNames(tilesDir, names);
+
     res.json({ filename: newFilename, name: newName });
   } catch (err) {
     console.error(err);
@@ -755,7 +794,8 @@ app.delete('/api/story/:id/tiles/:filename', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), 'tiles', filename);
+    const tilesDir = path.join(storyDir(username, id), 'tiles');
+    const filePath = path.join(tilesDir, filename);
     try {
       await fs.unlink(filePath);
     } catch (e) {
@@ -770,6 +810,13 @@ app.delete('/api/story/:id/tiles/:filename', async (req, res) => {
         order.splice(idx, 1);
         await writeTileOrder(username, id, order);
       }
+    }
+
+    // Remove from _names.json
+    const names = await readNames(tilesDir);
+    if (names[filename]) {
+      delete names[filename];
+      await writeNames(tilesDir, names);
     }
 
     res.json({ ok: true, filename });
@@ -801,7 +848,7 @@ app.post('/api/story/:id/tiles/reorder', async (req, res) => {
 
 // --- Highlight endpoints ---
 
-// List highlights for a story (sorted alphabetically)
+// List highlights for a story (sorted alphabetically by display name)
 app.get('/api/story/:id/highlights', async (req, res) => {
   const id = req.params.id;
   try {
@@ -817,9 +864,11 @@ app.get('/api/story/:id/highlights', async (req, res) => {
     } catch (e) {
       files = [];
     }
-    // Sort alphabetically
-    files.sort((a, b) => a.localeCompare(b));
-    const highlights = files.map(f => ({ filename: f, name: f.replace(/\.md$/, '') }));
+    // Read display names
+    const names = await readNames(highlightsDir);
+    const highlights = files.map(f => ({ filename: f, name: getDisplayNameForFile(names, f) }));
+    // Sort alphabetically by display name
+    highlights.sort((a, b) => a.name.localeCompare(b.name));
     res.json(highlights);
   } catch (err) {
     console.error(err);
@@ -871,14 +920,16 @@ app.get('/api/story/:id/highlights/:filename', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), 'highlights', filename);
+    const highlightsDir = path.join(storyDir(username, id), 'highlights');
+    const filePath = path.join(highlightsDir, filename);
     let content = '';
     try {
       content = await fs.readFile(filePath, 'utf8');
     } catch (e) {
       return res.status(404).json({ error: 'highlight not found' });
     }
-    res.json({ filename, name: filename.replace(/\.md$/, ''), content });
+    const names = await readNames(highlightsDir);
+    res.json({ filename, name: getDisplayNameForFile(names, filename), content });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed to read highlight' });
@@ -933,8 +984,9 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
       return res.status(404).json({ error: 'highlight not found' });
     }
 
-    // Derive the old display name from the filename (strip .md extension)
-    const oldName = filename.replace(/\.md$/, '');
+    // Get the old display name from _names.json (fallback to filename without .md)
+    const names = await readNames(highlightsDir);
+    const oldName = getDisplayNameForFile(names, filename);
 
     let newFilename = sanitizeFilename(newName) + '.md';
     if (newFilename !== filename) {
@@ -953,7 +1005,14 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
       await fs.rename(oldPath, newPath);
     }
 
-    // Propagate rename into all tile files: replace oldName with newName (case-preserving)
+    // Save display name in _names.json (remove old entry if filename changed)
+    if (newFilename !== filename) {
+      delete names[filename];
+    }
+    names[newFilename] = newName;
+    await writeNames(highlightsDir, names);
+
+    // Propagate rename into all tile files: replace oldName with newName (case-insensitive, Unicode-aware)
     const tilesDir = path.join(storyDir(username, id), 'tiles');
     let tileFiles = [];
     try {
@@ -963,7 +1022,7 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
     }
 
     const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const replaceRegex = new RegExp(escapedOld, 'gi');
+    const replaceRegex = new RegExp(escapedOld, 'giu');
 
     await Promise.all(tileFiles.map(async (tileFile) => {
       const tilePath = path.join(tilesDir, tileFile);
@@ -1005,12 +1064,21 @@ app.delete('/api/story/:id/highlights/:filename', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), 'highlights', filename);
+    const highlightsDir = path.join(storyDir(username, id), 'highlights');
+    const filePath = path.join(highlightsDir, filename);
     try {
       await fs.unlink(filePath);
     } catch (e) {
       return res.status(404).json({ error: 'highlight not found' });
     }
+
+    // Remove from _names.json
+    const names = await readNames(highlightsDir);
+    if (names[filename]) {
+      delete names[filename];
+      await writeNames(highlightsDir, names);
+    }
+
     res.json({ ok: true, filename });
   } catch (err) {
     console.error(err);
