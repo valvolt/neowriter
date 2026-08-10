@@ -495,8 +495,9 @@
     const nameToFilename = getHighlightNameToFilenameMap();
 
     // Build a combined regex for all highlight names (case-insensitive)
+    // Use \b word boundaries so only full-word matches are highlighted
     const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const combinedRegex = new RegExp(`(${escaped.join('|')})`, 'gi');
+    const combinedRegex = new RegExp(`\\b(${escaped.join('|')})\\b`, 'gi');
 
     // Walk text nodes in the preview, skip code/pre/mark elements
     const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, null, false);
@@ -1328,7 +1329,7 @@
     if (!name) return 0;
     const fullText = tilesOrder.map(f => tilesCache[f] || '').join('\n\n');
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escaped, 'gi');
+    const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
     const matches = fullText.match(regex);
     return matches ? matches.length : 0;
   }
@@ -1467,7 +1468,7 @@
           // Update tiles cache: replace old name with new name in all cached tile content
           const oldName = hl.name;
           const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const replaceRegex = new RegExp(escapedOld, 'gi');
+          const replaceRegex = new RegExp(`\\b${escapedOld}\\b`, 'gi');
           for (const tileFilename of tilesOrder) {
             if (tilesCache[tileFilename]) {
               tilesCache[tileFilename] = tilesCache[tileFilename].replace(replaceRegex, (match) => {
