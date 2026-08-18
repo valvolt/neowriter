@@ -7,10 +7,20 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Detect mode: if Auth0 env vars are present, run in hosted mode
-const LOCAL_MODE = !process.env.CLIENT_ID;
+// Detect mode based on precedence rules
+let LOCAL_MODE;
 const DEFAULT_USER = 'anonymous';
+
+if (process.env.MODE === 'LOCAL') {
+  // Highest precedence: Explicitly told to be local.
+  LOCAL_MODE = true;
+} else if (process.env.MODE === 'HOSTED') {
+  // Explicitly told to be hosted, even if CLIENT_ID check is skipped.
+  LOCAL_MODE = false;
+} else {
+  // Fallback: Original logic based on Auth0 configuration presence.
+  LOCAL_MODE = !process.env.CLIENT_ID;
+}
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
