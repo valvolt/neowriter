@@ -101,7 +101,14 @@
   function updateStats(text) {
     const chars = text.length;
     const words = text.trim().length ? text.trim().split(/\s+/).length : 0;
-    stats.textContent = `Words: ${words} \u2014 Chars: ${chars}`;
+
+    const fullStoryText = getFullStoryText();
+    const totalChars = fullStoryText.length;
+    const totalWords = fullStoryText.trim().length
+      ? fullStoryText.trim().split(/\s+/).length
+      : 0;
+
+    stats.textContent = `Words: ${words}/${totalWords} \u2014 Chars: ${chars}/${totalChars}`;
   }
 
   function initMermaidIfPresent() {
@@ -1776,7 +1783,6 @@
 
   editor.addEventListener('input', () => {
     const text = editor.value;
-    updateStats(text);
 
     // Update cache and refresh highlights counts when editing tiles
     if (editMode === 'tile' && currentTileFilename) {
@@ -1784,6 +1790,8 @@
       loadHighlightsList();
       refreshTodoBadge();
     }
+
+    updateStats(text);
 
     // Update tooltip cache when editing a highlight and refresh menu (keywords may change)
     if (editMode === 'highlight' && currentHighlightFilename) {
