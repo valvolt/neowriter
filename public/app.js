@@ -108,7 +108,7 @@
       ? fullStoryText.trim().split(/\s+/).length
       : 0;
 
-    stats.textContent = `Words: ${words}/${totalWords} \u2014 Chars: ${chars}/${totalChars}`;
+    stats.textContent = `Words: ${words}/${totalWords} \u2014 Chars: ${chars}/${totalChars} \u2014 Minutes: ${Math.round(words/300)}/${Math.round(totalWords/300)}`;
   }
 
   function initMermaidIfPresent() {
