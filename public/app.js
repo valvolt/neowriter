@@ -1643,6 +1643,8 @@
 
       list.forEach((item) => {
         const row = document.createElement('div');
+        row.classList.add('todo-item');
+        row.classList.add('todo-item');
         row.style.display = 'flex';
         row.style.alignItems = 'flex-start';
         row.style.gap = '8px';
@@ -2415,6 +2417,7 @@
         }
 
         const row = document.createElement('div');
+        row.classList.add('todo-item');
         row.style.display = 'flex';
         row.style.alignItems = 'flex-start';
         row.style.gap = '8px';

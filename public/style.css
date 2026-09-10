@@ -1,3 +1,9 @@
+/* Todo item hover highlight */
+.todo-item:hover {
+  background-color: #f0f4ff;
+  border-radius: 8px;
+  transition: background 0.18s, border-radius 0.18s;
+}
 :root{
   --gap: 12px;
   --menu-width: 220px;
