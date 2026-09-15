@@ -1440,14 +1440,19 @@ app.get('*', (req, res) => {
   res.type('html').send(html);
 });
 
-(async () => {
-  try {
-    await ensureData();
-    app.listen(PORT, () => {
-      console.log(`Neo Writer server running on http://localhost:${PORT}`);
-    });
-  } catch (e) {
-    console.error('Failed to start server', e);
-    process.exit(1);
-  }
-})();
+// Export app for testing; start server only when run directly
+module.exports = app;
+
+if (require.main === module) {
+  (async () => {
+    try {
+      await ensureData();
+      app.listen(PORT, () => {
+        console.log(`Neo Writer server running on http://localhost:${PORT}`);
+      });
+    } catch (e) {
+      console.error('Failed to start server', e);
+      process.exit(1);
+    }
+  })();
+}
