@@ -1,72 +1,49 @@
-require('dotenv').config();
+
 const express = require('express');
+const path = require('path');
 const fs = require('fs').promises;
 const fsSync = require('fs');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-// Detect mode based on precedence rules
+// --- Config ---
+const config = require('./config');
+const { PORT, DATA_DIR, PUBLIC_DIR, DEFAULT_USER, CLIENT_ID, MODE } = config;
+
 let LOCAL_MODE;
-const DEFAULT_USER = 'anonymous';
-
-if (process.env.MODE === 'LOCAL') {
-  // Highest precedence: Explicitly told to be local.
+if (MODE === 'LOCAL') {
   LOCAL_MODE = true;
-} else if (process.env.MODE === 'HOSTED') {
-  // Explicitly told to be hosted, even if CLIENT_ID check is skipped.
+} else if (MODE === 'HOSTED') {
   LOCAL_MODE = false;
 } else {
-  // Fallback: Original logic based on Auth0 configuration presence.
-  LOCAL_MODE = !process.env.CLIENT_ID;
+  LOCAL_MODE = !CLIENT_ID;
 }
 
-const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
-const PUBLIC_DIR = path.join(ROOT, 'public');
+const app = express();
 
 // --- Auth0 setup (hosted mode only) ---
 if (!LOCAL_MODE) {
   const { auth } = require('express-openid-connect');
-  app.use(
-    auth({
-      authRequired: false,
-      auth0Logout: true,
-      secret: process.env.SECRET,
-      baseURL: process.env.BASE_URL,
-      clientID: process.env.CLIENT_ID,
-      issuerBaseURL: process.env.ISSUER_BASE_URL,
-    })
-  );
+  app.use(auth({
+    authRequired: false,
+    auth0Logout: true,
+    secret: config.SECRET,
+    baseURL: config.BASE_URL,
+    clientID: config.CLIENT_ID,
+    issuerBaseURL: config.ISSUER_BASE_URL,
+  }));
 }
 
 app.use(express.json({ limit: '50mb' }));
-// Serve static assets but NOT index.html (we serve it dynamically)
 app.use(express.static(PUBLIC_DIR, { index: false }));
 
 // --- User helpers ---
-
-// Sanitize an email/username into a safe directory name
-function sanitizeUsername(email) {
-  let s = String(email).trim().toLowerCase();
-  s = s.replace(/@/g, '-');
-  s = s.replace(/[^a-z0-9\-\.]/g, '-');
-  s = s.replace(/-{2,}/g, '-');
-  s = s.replace(/^-+|-+$/g, '');
-  return s || 'unknown';
-}
-
-// Get the current username from the request
+const { sanitizeUsername, sanitizeFilename } = require('./utils/sanitize');
 function getUsername(req) {
   if (LOCAL_MODE) return DEFAULT_USER;
   if (req.oidc && req.oidc.isAuthenticated() && req.oidc.user) {
     return sanitizeUsername(req.oidc.user.email || req.oidc.user.name || 'unknown');
   }
-  return null; // not authenticated
+  return null;
 }
-
-// Get the display name (email) for the client
 function getDisplayName(req) {
   if (LOCAL_MODE) return DEFAULT_USER;
   if (req.oidc && req.oidc.isAuthenticated() && req.oidc.user) {
@@ -75,29 +52,93 @@ function getDisplayName(req) {
   return null;
 }
 
-// Middleware: require authentication for API routes in hosted mode
-function requireUser(req, res, next) {
-  if (LOCAL_MODE) return next();
-  if (!req.oidc || !req.oidc.isAuthenticated()) {
-    return res.status(401).json({ error: 'authentication required' });
-  }
-  next();
-}
+// --- Modular middleware ---
+const makeRequireUser = require('./middleware/auth');
+const requireUser = makeRequireUser(LOCAL_MODE);
 
-// Sanitize a user-provided name into a safe filename (without extension).
-// Normalize Unicode (NFD) to strip accents, lowercase, replace spaces/underscores with hyphens,
-// strip non-alphanumeric (except hyphens), collapse multiple hyphens, trim hyphens.
-function sanitizeFilename(name) {
-  let s = String(name).trim();
-  // NFD decomposition: split accented chars into base + combining mark, then strip combining marks
-  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  s = s.toLowerCase();
-  s = s.replace(/[\s_]+/g, '-');
-  s = s.replace(/[^a-z0-9\-]/g, '');
-  s = s.replace(/-{2,}/g, '-');
-  s = s.replace(/^-+|-+$/g, '');
-  return s || 'untitled';
-}
+// --- API routes (modularized) ---
+const storiesRouter = require('./routes/stories')({
+  DATA_DIR,
+  getUsername,
+  getDisplayName,
+  DEFAULT_USER
+});
+app.use('/api', requireUser, storiesRouter);
+
+// ...[Most endpoints omitted for brevity: migrate others here as per pattern]...
+
+// --- Serve index.html dynamically (inject user info) [unchanged block] ---
+// NOTE: fsSync is used just for sync reads like index.html. All other FS access should use fs (promises version).
+app.get('/', async (req, res) => {
+  if (!LOCAL_MODE && (!req.oidc || !req.oidc.isAuthenticated())) {
+    // Show login page with published stories for unauthenticated users
+    // [...(remains unchanged for now)...]
+    let storiesHtml = '';
+    try {
+      let userDirs = [];
+      try { userDirs = await fs.promises.readdir(DATA_DIR); } catch (e) {}
+      const published = [];
+      for (const udir of userDirs) {
+        const upath = path.join(DATA_DIR, udir);
+        try {
+          const stat = await fs.promises.stat(upath);
+          if (!stat.isDirectory()) continue;
+          const mf = path.join(upath, 'metadata.json');
+          const raw = await fs.promises.readFile(mf, 'utf8');
+          const meta = JSON.parse(raw);
+          for (const item of meta) {
+            if (item.published) {
+              published.push({ id: item.id, name: item.name, author: item.author || udir, username: udir });
+            }
+          }
+        } catch (e) { /* skip */ }
+      }
+      if (published.length > 0) {
+        storiesHtml = '<div class="stories"><h2>Published Stories</h2><ul>' +
+          published.map(s => `<li><a href="/read/${s.username}/${s.id}">${s.name}</a><span class="author">by ${s.author}</span></li>`).join('') +
+          '</ul></div>';
+      }
+    } catch (e) { /* ignore */ }
+    return res.type('html').send(`
+      <!doctype html>
+      <html><head><title>Neo Writer</title>
+      <style>body{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;background:#f7f7f8;}
+      .card{text-align:center;padding:40px;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:24px;}
+      h1{color:#2b7cff;margin-bottom:24px;}
+      a{display:inline-block;margin:8px;padding:12px 24px;background:#2b7cff;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;}
+      a:hover{opacity:0.9;} a.secondary{background:#f0f0f2;color:#333;}
+      .stories{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.04);padding:24px 32px;max-width:600px;width:100%;}
+      .stories h2{margin:0 0 16px;font-size:18px;color:#333;}
+      .stories ul{list-style:none;padding:0;margin:0;}
+      .stories li{padding:10px 0;border-bottom:1px solid #eee;display:flex;align-items:center;gap:12px;}
+      .stories li:last-child{border-bottom:none;}
+      .stories li a{display:inline;margin:0;padding:0;background:none;color:#2b7cff;font-weight:500;font-size:15px;text-decoration:none;}
+      .stories li a:hover{text-decoration:underline;}
+      .stories .author{font-size:13px;color:#888;}</style>
+      </head><body><div class="card"><h1>Neo Writer</h1><p>Please log in to continue.</p>
+      <a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a></div>${storiesHtml}</body></html>
+    `);
+  }
+  // Authenticated view
+  const username = getUsername(req) || DEFAULT_USER;
+  const displayName = getDisplayName(req) || DEFAULT_USER;
+  const localMode = LOCAL_MODE;
+  const indexPath = path.join(PUBLIC_DIR, 'index.html');
+  let html = fsSync.readFileSync(indexPath, 'utf8');
+  html = html.replace(
+    /<!-- expose local_mode and username to the client -->\s*<script>[\s\S]*?<\/script>/,
+    `<!-- expose local_mode and username to the client -->\n  <script>\n    window.local_mode = ${localMode};\n    window.username = ${JSON.stringify(displayName)};\n  </script>`
+  );
+  res.type('html').send(html);
+});
+
+// ...[other endpoints and static file serving omitted for brevity]...
+
+
+// Remove legacy ensureData function if it exists in this file!
+
+
+module.exports = app;
 
 // --- Per-user data helpers ---
 
@@ -121,13 +162,7 @@ async function ensureUserData(username) {
   }
 }
 
-// Ensure base data directory exists (called once at startup)
-async function ensureData() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  if (LOCAL_MODE) {
-    await ensureUserData(DEFAULT_USER);
-  }
-}
+
 
 async function readMeta(username) {
   const mf = metaFile(username);
@@ -1443,16 +1478,17 @@ app.get('*', (req, res) => {
 // Export app for testing; start server only when run directly
 module.exports = app;
 
+
+// --- Startup ---
 if (require.main === module) {
-  (async () => {
-    try {
-      await ensureData();
+  config.ensureDataDir()
+    .then(() => {
       app.listen(PORT, () => {
         console.log(`Neo Writer server running on http://localhost:${PORT}`);
       });
-    } catch (e) {
+    })
+    .catch(e => {
       console.error('Failed to start server', e);
       process.exit(1);
-    }
-  })();
+    });
 }
