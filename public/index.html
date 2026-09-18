@@ -15,7 +15,7 @@
     <h1>Neo Writer</h1>
     <div id="open-story-name" style="display:inline-block; margin-left:16px; font-weight:600;"></div>
     <input type="search" id="filter-input" placeholder="Filter…" autocomplete="off"
-      style="position:absolute; left:160px; top:11px; width:180px; font-size:0.8rem; padding:4px 8px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; outline:none;" />
+      style="position:absolute; left:360px; top:11px; width:180px; font-size:0.8rem; padding:4px 8px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; outline:none;" />
     <button id="toggle-publish" style="position:absolute; right:560px; top:14px; font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#f5f5f5; color:#888; cursor:pointer; font-weight:500; display:none;">Published ✗</button>
     <button id="toggle-highlights" style="position:absolute; right:420px; top:14px; font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#e3ecff; color:#2b7cff; cursor:pointer; font-weight:500;">Highlights ✓</button>
     <div id="speech-controls" style="position:absolute; right:200px; top:12px; display:inline-flex; align-items:center; gap:4px;">
@@ -102,7 +102,7 @@
 
     <div class="resize-handle" id="resize-menu"></div>
     <section id="editor-pane">
-      <textarea id="editor" placeholder="Start typing markdown..." spellcheck="false"></textarea>
+      <div id="editor" contenteditable="false" spellcheck="false" data-placeholder="Start typing markdown..."></div>
     </section>
     <div class="resize-handle" id="resize-editor"></div>
     <section id="render-pane">

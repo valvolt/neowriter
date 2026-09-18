@@ -93,6 +93,34 @@ test('filter is case-insensitive', async ({ request, page }) => {
   await expect(page.locator('#story-list .story-name')).toHaveText('Adventure Time');
 });
 
+test('matching text in story name is wrapped in <mark>', async ({ request, page }) => {
+  await createStoryWithContent(request, 'The Forest Path');
+
+  await page.goto('/');
+  await page.fill('#filter-input', 'Forest');
+  await page.waitForTimeout(400);
+
+  // The matched substring should be inside a <mark> element
+  const mark = page.locator('#story-list .story-name mark');
+  await expect(mark).toHaveCount(1);
+  await expect(mark).toHaveText('Forest');
+});
+
+test('matching text in tile name is wrapped in <mark>', async ({ request, page }) => {
+  const story = await createStoryWithContent(request, 'Mark Test Story', '');
+
+  await page.goto('/');
+  await openStory(page, 'Mark Test Story');
+
+  // chapter-1 tile name contains "chapter" — filter on it
+  await page.fill('#filter-input', 'chapter');
+  await page.waitForTimeout(400);
+
+  const mark = page.locator('#binder-tiles-list .tile-name mark');
+  await expect(mark).toHaveCount(1);
+  await expect(mark).toHaveText('chapter');
+});
+
 // ============================================================================
 // Filter: binder (tiles and highlights)
 // ============================================================================

@@ -255,11 +255,9 @@ main{
 }
 
 #editor{
-  width:100%;
-  height:100%;
+  flex:1;
   padding:12px;
   border:0;
-  resize:none;
   font-family:Menlo, ui-monospace, SFMono-Regular, ui-serif, monospace;
   font-size:14px;
   line-height:1.5;
@@ -267,6 +265,20 @@ main{
   overflow:auto;
   min-height:300px;
   background:transparent;
+  white-space:pre-wrap;
+  word-wrap:break-word;
+  overflow-wrap:break-word;
+  cursor:text;
+}
+#editor[contenteditable="false"]{
+  cursor:default;
+  color:#aaa;
+}
+#editor:empty::before{
+  content:attr(data-placeholder);
+  color:#aaa;
+  pointer-events:none;
+  display:block;
 }
 /* Preview area */
 #preview{
@@ -394,6 +406,13 @@ footer{
 .todo-entry:hover{background:#f0f4ff;}
 .todo-entry.active{background:#e3ecff; font-weight:500;}
 
+/* Filter match highlights in sidebar names */
+mark {
+  background: #f0c000;
+  border-radius: 2px;
+  padding: 0;
+  color: inherit;
+}
 /* Highlight marks in preview */
 .highlight-mark{
   background:#fff176;

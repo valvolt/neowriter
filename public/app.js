@@ -56,8 +56,8 @@
 
   // Initial editor state
   if (editor) {
-    editor.disabled = true;
-    editor.placeholder = 'create or open a story';
+    editor.contentEditable = 'false';
+    editor.dataset.placeholder = 'create or open a story';
   }
   if (openStoryEl) openStoryEl.textContent = '';
 
@@ -273,7 +273,7 @@
     if (!editMode || editMode === 'todo') return;
     if (typeof marked === 'undefined' || typeof marked.lexer !== 'function') return;
 
-    const fullText = (editMode === 'tile') ? getFullStoryText() : (editor.value || '');
+    const fullText = (editMode === 'tile') ? getFullStoryText() : getEditorText();
     if (!fullText) return;
 
     // Compute cursor's character offset in the full text
@@ -285,9 +285,9 @@
         if (f === currentTileFilename) break;
         offsetBefore += (tilesCache[f] || '').length + 2; // +2 for \n\n join
       }
-      cursorOffset = offsetBefore + (editor.selectionStart || 0);
+      cursorOffset = offsetBefore + getEditorCursorOffset();
     } else {
-      cursorOffset = editor.selectionStart || 0;
+      cursorOffset = getEditorCursorOffset();
     }
     cursorOffset = Math.min(cursorOffset, fullText.length);
 
@@ -401,7 +401,7 @@
   // --- Single-highlight rendering (highlight mode) ---
 
   function renderCurrentHighlight() {
-    const text = editor.value || '';
+    const text = getEditorText();
     renderMarkdownToPreview(text);
   }
 
@@ -745,7 +745,7 @@
     const clickedIndex = children.indexOf(targetEl);
     if (clickedIndex < 0) return;
 
-    const fullText = (editMode === 'tile') ? getFullStoryText() : (editor.value || '');
+    const fullText = (editMode === 'tile') ? getFullStoryText() : getEditorText();
     if (!fullText) return;
 
     const processed = preprocessMarkdown(fullText);
@@ -836,7 +836,7 @@
       openTile(targetTileFilename, lineIndex);
     } else if (editMode === 'highlight') {
       // Position cursor in the current highlight
-      const content = editor.value || '';
+      const content = getEditorText();
       let lineIndex = 0;
       for (let i = 0; i < originalOffset && i < content.length; i++) {
         if (content[i] === '\n') lineIndex++;
@@ -846,8 +846,7 @@
       for (let i = 0; i < lineIndex && i < lines.length; i++) {
         charPos += lines[i].length + 1;
       }
-      editor.selectionStart = charPos;
-      editor.selectionEnd = charPos;
+      setCursorAtOffset(charPos);
       editor.focus();
     }
   });
@@ -977,9 +976,9 @@
     tilesCache = {};
     highlightsList = [];
     if (editor) {
-      editor.value = '';
-      editor.disabled = true;
-      editor.placeholder = 'create or open a story';
+      editor.innerHTML = '';
+      editor.contentEditable = 'false';
+      editor.dataset.placeholder = 'create or open a story';
     }
     if (openStoryEl) openStoryEl.textContent = '';
     if (currentName) currentName.textContent = '';
@@ -1036,7 +1035,7 @@
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'story-name';
-    nameSpan.textContent = item.name || 'Untitled';
+    applyHighlight(nameSpan, item.name || 'Untitled', filterQuery);
     nameSpan.style.cursor = 'pointer';
     left.appendChild(nameSpan);
     li.appendChild(left);
@@ -1099,6 +1098,83 @@
 
   // --- Filter helpers ---
 
+  // Renders text into el, wrapping the first occurrence of query in <mark>.
+  function applyHighlight(el, text, query) {
+    el.textContent = '';
+    if (!query) { el.textContent = text; return; }
+    const lower = text.toLowerCase();
+    const idx = lower.indexOf(query.toLowerCase());
+    if (idx === -1) { el.textContent = text; return; }
+    el.appendChild(document.createTextNode(text.slice(0, idx)));
+    const mark = document.createElement('mark');
+    mark.textContent = text.slice(idx, idx + query.length);
+    el.appendChild(mark);
+    el.appendChild(document.createTextNode(text.slice(idx + query.length)));
+  }
+
+  // --- Contenteditable editor helpers ---
+
+  function getEditorText() {
+    if (!editor) return '';
+    return (editor.innerText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  }
+
+  function setEditorContent(text) {
+    if (!text) { editor.innerHTML = ''; return; }
+    if (!filterQuery) { editor.innerText = text; return; }
+    const ql = filterQuery.toLowerCase();
+    const lower = text.toLowerCase();
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let html = '', pos = 0, idx;
+    while ((idx = lower.indexOf(ql, pos)) !== -1) {
+      html += esc(text.slice(pos, idx)).replace(/\n/g, '<br>');
+      html += '<mark>' + esc(text.slice(idx, idx + ql.length)) + '</mark>';
+      pos = idx + ql.length;
+    }
+    html += esc(text.slice(pos)).replace(/\n/g, '<br>');
+    editor.innerHTML = html;
+  }
+
+  function getEditorCursorOffset() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !editor.contains(sel.anchorNode)) return 0;
+    const range = document.createRange();
+    range.setStart(editor, 0);
+    range.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
+    return range.toString().length;
+  }
+
+  function setCursorAtOffset(charPos) {
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
+    let remaining = charPos;
+    let node;
+    while ((node = walker.nextNode())) {
+      const len = node.nodeValue.length;
+      if (remaining <= len) {
+        try {
+          const range = document.createRange();
+          range.setStart(node, remaining);
+          range.collapse(true);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (e) {}
+        return;
+      }
+      remaining -= len;
+    }
+  }
+
+  // Insert `text` replacing the range [startOffset, endOffset] in the editor plain text.
+  function editorInsertAt(text, startOffset, endOffset) {
+    const full = getEditorText();
+    const newText = full.slice(0, startOffset) + text + full.slice(endOffset);
+    editor.innerText = newText;
+    setCursorAtOffset(startOffset + text.length);
+    editor.dispatchEvent(new Event('input'));
+    editor.focus();
+  }
+
   function getMatchingTiles() {
     if (!filterQuery || !filterResults) return null; // null = no filter, show all
     const match = filterResults.find(r => r.id === currentStoryId);
@@ -1128,6 +1204,12 @@
       }
       loadTilesList();
       loadHighlightsList();
+      // Refresh editor marks when filter changes while a tile/highlight is open
+      if (editMode === 'tile' && currentTileFilename) {
+        setEditorContent(getEditorText());
+      } else if (editMode === 'highlight' && currentHighlightFilename) {
+        setEditorContent(getEditorText());
+      }
     } else {
       // In story list view: loadList handles the search internally
       await loadList();
@@ -1258,7 +1340,7 @@
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'tile-name';
-    nameSpan.textContent = tile.name;
+    applyHighlight(nameSpan, tile.name, filterQuery);
     nameSpan.title = tile.filename;
     nameSpan.style.cursor = 'pointer';
     li.appendChild(nameSpan);
@@ -1326,9 +1408,9 @@
         if (editMode === 'tile' && currentTileFilename === tile.filename) {
           editMode = null;
           currentTileFilename = null;
-          editor.value = '';
-          editor.disabled = true;
-          editor.placeholder = 'select a tile to edit';
+          editor.innerHTML = '';
+          editor.contentEditable = 'false';
+          editor.dataset.placeholder = 'select a tile to edit';
           updateStats('');
           updateBreadcrumb();
         }
@@ -1351,9 +1433,9 @@
     if (binderTodoEntry) binderTodoEntry.classList.remove('active');
     const content = tilesCache[filename] || '';
     if (editor) {
-      editor.disabled = false;
-      editor.value = content;
-      editor.placeholder = 'Start typing markdown...';
+      editor.contentEditable = 'true';
+      setEditorContent(content);
+      editor.dataset.placeholder = 'Start typing markdown...';
       // Position cursor at the specified line if provided
       if (typeof lineIndex === 'number' && lineIndex >= 0) {
         const lines = content.split('\n');
@@ -1361,11 +1443,10 @@
         for (let i = 0; i < lineIndex && i < lines.length; i++) {
           charPos += lines[i].length + 1; // +1 for the newline character
         }
-        editor.selectionStart = charPos;
-        editor.selectionEnd = charPos;
+        setCursorAtOffset(charPos);
       }
     }
-    updateStats(editor.value);
+    updateStats(getEditorText());
     updateBreadcrumb();
     loadTilesList();
     loadHighlightsList();
@@ -1474,7 +1555,7 @@
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'tile-name';
-    nameSpan.textContent = hl.name;
+    applyHighlight(nameSpan, hl.name, filterQuery);
     nameSpan.title = hl.filename;
     nameSpan.style.cursor = 'pointer';
     li.appendChild(nameSpan);
@@ -1589,9 +1670,9 @@
         if (editMode === 'highlight' && currentHighlightFilename === hl.filename) {
           editMode = null;
           currentHighlightFilename = null;
-          editor.value = '';
-          editor.disabled = true;
-          editor.placeholder = 'select a tile or highlight to edit';
+          editor.innerHTML = '';
+          editor.contentEditable = 'false';
+          editor.dataset.placeholder = 'select a tile or highlight to edit';
           updateStats('');
           updateBreadcrumb();
           renderPreview();
@@ -1618,9 +1699,9 @@
       // Update tooltip cache with fresh content
       highlightsContentCache[filename] = res.content || '';
       if (editor) {
-        editor.disabled = false;
-        editor.value = res.content || '';
-        editor.placeholder = 'Start typing markdown...';
+        editor.contentEditable = 'true';
+        setEditorContent(res.content || '');
+        editor.dataset.placeholder = 'Start typing markdown...';
         // Position cursor at the specified line if provided
         if (typeof lineIndex === 'number' && lineIndex >= 0) {
           const content = res.content || '';
@@ -1629,11 +1710,10 @@
           for (let i = 0; i < lineIndex && i < lines.length; i++) {
             charPos += lines[i].length + 1;
           }
-          editor.selectionStart = charPos;
-          editor.selectionEnd = charPos;
+          setCursorAtOffset(charPos);
         }
       }
-      updateStats(editor.value);
+      updateStats(getEditorText());
       updateBreadcrumb();
       loadTilesList();
       loadHighlightsList();
@@ -1677,8 +1757,8 @@
     currentTileFilename = null;
     currentHighlightFilename = null;
     if (editor) {
-      editor.disabled = true;
-      editor.value = '';
+      editor.contentEditable = 'false';
+      editor.innerHTML = '';
     }
     updateStats('');
     updateBreadcrumb();
@@ -1838,7 +1918,7 @@
         await fetch(`/api/story/${currentStoryId}/tiles/${currentTileFilename}/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: editor.value })
+          body: JSON.stringify({ content: getEditorText() })
         });
       } catch (e) {
         console.error('autosave failed', e);
@@ -1848,7 +1928,7 @@
         await fetch(`/api/story/${currentStoryId}/highlights/${currentHighlightFilename}/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: editor.value })
+          body: JSON.stringify({ content: getEditorText() })
         });
       } catch (e) {
         console.error('autosave failed', e);
@@ -1859,7 +1939,7 @@
   // --- Event listeners ---
 
   editor.addEventListener('input', () => {
-    const text = editor.value;
+    const text = getEditorText();
 
     // Update cache and refresh highlights counts when editing tiles
     if (editMode === 'tile' && currentTileFilename) {
@@ -1878,6 +1958,9 @@
 
     renderPreview();
     saveCurrent();
+  });
+
+  editor.addEventListener('scroll', () => {
   });
 
   editor.addEventListener('dblclick', () => {
@@ -1960,10 +2043,11 @@
   }
 
   editor.addEventListener('contextmenu', (ev) => {
-    if (editor.disabled) return; // don't show if no file open
+    if (editor.contentEditable !== 'true') return; // don't show if no file open
     ev.preventDefault();
     // Enable/disable menu items based on selection
-    const hasSelection = editor.selectionStart !== editor.selectionEnd;
+    const sel = window.getSelection();
+    const hasSelection = sel && editor.contains(sel.anchorNode) && !sel.isCollapsed;
     contextMenu.querySelectorAll('li').forEach(li => {
       const action = li.dataset.action;
       if (action === 'insert-table' || action === 'insert-picture') {
@@ -2009,63 +2093,39 @@
 
   function insertTable() {
     const table = '\n| Col 1 | Col 2 | Col 3 |\n|-------|-------|-------|\n|       |       |       |\n|       |       |       |\n';
-    // Insert at the end of selection (selectionEnd), without deleting selected text
-    const pos = editor.selectionEnd;
-    const before = editor.value.substring(0, pos);
-    const after = editor.value.substring(pos);
-    editor.value = before + table + after;
-
-    // Place cursor after the inserted table
-    const newPos = pos + table.length;
-    editor.selectionStart = newPos;
-    editor.selectionEnd = newPos;
-
-    // Trigger update
-    editor.dispatchEvent(new Event('input'));
-    editor.focus();
+    const pos = getEditorCursorOffset();
+    editorInsertAt(table, pos, pos);
   }
 
   // --- Insert Keyword ---
 
   function insertKeyword() {
-    const hasSelection = editor.selectionStart !== editor.selectionEnd;
+    const sel = window.getSelection();
+    const hasSelection = sel && editor.contains(sel.anchorNode) && !sel.isCollapsed;
 
     if (hasSelection) {
       // Insert ‡ before the selected text
-      const pos = editor.selectionStart;
-      const before = editor.value.substring(0, pos);
-      const after = editor.value.substring(pos);
-      editor.value = before + '\u2021' + after;
-
-      // Place cursor after the ‡ and before the original selection
-      const newPos = pos + 1;
-      editor.selectionStart = newPos;
-      editor.selectionEnd = newPos + (editor.selectionEnd - editor.selectionStart);
+      const selText = sel.toString();
+      const range = document.createRange();
+      range.setStart(editor, 0);
+      range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+      const startOffset = range.toString().length;
+      editorInsertAt('‡' + selText, startOffset, startOffset + selText.length);
     } else {
       // Ask for text, then insert ‡ + text at cursor
       const keyword = prompt('Keyword text:');
       if (!keyword) return;
-      const pos = editor.selectionStart;
-      const before = editor.value.substring(0, pos);
-      const after = editor.value.substring(pos);
-      const insertion = '\u2021' + keyword;
-      editor.value = before + insertion + after;
-
-      const newPos = pos + insertion.length;
-      editor.selectionStart = newPos;
-      editor.selectionEnd = newPos;
+      const pos = getEditorCursorOffset();
+      editorInsertAt('‡' + keyword, pos, pos);
     }
-
-    editor.dispatchEvent(new Event('input'));
-    editor.focus();
   }
 
   // --- Create Highlight from selection ---
 
   async function createHighlightFromSelection() {
     if (!currentStoryId) return;
-    const selectedText = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-    const name = selectedText.trim() || 'New Highlight';
+    const selectedText = window.getSelection().toString().trim();
+    const name = selectedText || 'New Highlight';
 
     try {
       // Create highlight with a sanitized name based on selected text
@@ -2095,27 +2155,21 @@
   // --- Insert Link ---
 
   function insertLink() {
-    // Use selected text as the link text (read-only — user only provides URL)
-    const selectedText = editor.value.substring(editor.selectionStart, editor.selectionEnd);
-    const linkText = selectedText || '';
+    const sel = window.getSelection();
+    if (!sel || !editor.contains(sel.anchorNode) || sel.isCollapsed) return;
+    const selectedText = sel.toString();
+    const linkText = selectedText;
     if (!linkText) return; // should not happen since menu item is disabled without selection
     const linkUrl = prompt(`URL for "${linkText}":`, 'https://');
     if (!linkUrl) return;
 
     const md = `[${linkText}](${linkUrl})`;
     // Replace selection with the link
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    const before = editor.value.substring(0, start);
-    const after = editor.value.substring(end);
-    editor.value = before + md + after;
-
-    const newPos = start + md.length;
-    editor.selectionStart = newPos;
-    editor.selectionEnd = newPos;
-
-    editor.dispatchEvent(new Event('input'));
-    editor.focus();
+    const range = document.createRange();
+    range.setStart(editor, 0);
+    range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+    const start = range.toString().length;
+    editorInsertAt(md, start, start + selectedText.length);
   }
 
   // --- Insert Picture (dialog-based) ---
@@ -2132,8 +2186,7 @@
     picDialogName.value = '';
     picDialogUrl.value = '';
     picDialogFile.value = '';
-    pictureInsertPos = editor.selectionEnd;
-    editor.selectionStart = pictureInsertPos;
+    pictureInsertPos = getEditorCursorOffset();
     picDialogOverlay.style.display = '';
     picDialogName.focus();
   }
@@ -2269,17 +2322,8 @@
 
   function insertPictureMarkdown(altText, picPath) {
     const md = `\n![${altText}](${picPath})\n`;
-    const pos = pictureInsertPos != null ? pictureInsertPos : editor.selectionEnd;
-    const before = editor.value.substring(0, pos);
-    const after = editor.value.substring(pos);
-    editor.value = before + md + after;
-
-    const newPos = pos + md.length;
-    editor.selectionStart = newPos;
-    editor.selectionEnd = newPos;
-
-    editor.dispatchEvent(new Event('input'));
-    editor.focus();
+    const pos = pictureInsertPos != null ? pictureInsertPos : getEditorCursorOffset();
+    editorInsertAt(md, pos, pos);
     pictureInsertPos = null;
   }
 
@@ -2300,29 +2344,25 @@
   }
 
   function speechInsertText(text, isFinal) {
-    if (!editor || editor.disabled) return;
+    if (!editor || editor.contentEditable !== 'true') return;
 
     // Remove previous ghost text if any
     if (speechGhostStart !== null && speechGhostLen > 0) {
-      const val = editor.value;
-      editor.value = val.substring(0, speechGhostStart) + val.substring(speechGhostStart + speechGhostLen);
-      editor.selectionStart = speechGhostStart;
-      editor.selectionEnd = speechGhostStart;
+      const full = getEditorText();
+      editor.innerText = full.substring(0, speechGhostStart) + full.substring(speechGhostStart + speechGhostLen);
+      setCursorAtOffset(speechGhostStart);
       speechGhostLen = 0;
     }
 
     if (!text) return;
 
-    const pos = speechGhostStart !== null ? speechGhostStart : editor.selectionStart;
-    const before = editor.value.substring(0, pos);
-    const after = editor.value.substring(pos);
-    editor.value = before + text + after;
+    const pos = speechGhostStart !== null ? speechGhostStart : getEditorCursorOffset();
+    const full = getEditorText();
+    editor.innerText = full.substring(0, pos) + text + full.substring(pos);
 
     if (isFinal) {
       // Move cursor after the inserted text
-      const newPos = pos + text.length;
-      editor.selectionStart = newPos;
-      editor.selectionEnd = newPos;
+      setCursorAtOffset(pos + text.length);
       speechGhostStart = null;
       speechGhostLen = 0;
       // Trigger input event for autosave/preview
@@ -2332,8 +2372,7 @@
       speechGhostStart = pos;
       speechGhostLen = text.length;
       // Place cursor at end of ghost for visual feedback
-      editor.selectionStart = pos + text.length;
-      editor.selectionEnd = pos + text.length;
+      setCursorAtOffset(pos + text.length);
     }
   }
 
@@ -2345,7 +2384,7 @@
     speechRecognition.interimResults = true;
 
     // Save cursor position for ghost insertion
-    speechGhostStart = editor.selectionStart;
+    speechGhostStart = getEditorCursorOffset();
     speechGhostLen = 0;
 
     speechRecognition.onresult = (event) => {
@@ -2364,7 +2403,7 @@
       if (finalTranscript) {
         speechInsertText(finalTranscript, true);
         // Update ghost start for next phrase
-        speechGhostStart = editor.selectionStart;
+        speechGhostStart = getEditorCursorOffset();
         speechGhostLen = 0;
       } else if (interimTranscript) {
         speechInsertText(interimTranscript, false);
@@ -2403,10 +2442,9 @@
     if (btnMic) btnMic.classList.remove('active');
     // Clear any remaining ghost text
     if (speechGhostStart !== null && speechGhostLen > 0) {
-      const val = editor.value;
-      editor.value = val.substring(0, speechGhostStart) + val.substring(speechGhostStart + speechGhostLen);
-      editor.selectionStart = speechGhostStart;
-      editor.selectionEnd = speechGhostStart;
+      const full = getEditorText();
+      editor.innerText = full.substring(0, speechGhostStart) + full.substring(speechGhostStart + speechGhostLen);
+      setCursorAtOffset(speechGhostStart);
     }
     speechGhostStart = null;
     speechGhostLen = 0;
@@ -2444,8 +2482,8 @@
     globalTodoActive = true;
     if (globalTodoEntry) globalTodoEntry.classList.add('active');
     if (editor) {
-      editor.disabled = true;
-      editor.value = '';
+      editor.contentEditable = 'false';
+      editor.innerHTML = '';
     }
     updateStats('');
     if (openStoryEl) openStoryEl.textContent = 'Todo';
