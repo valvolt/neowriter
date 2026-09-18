@@ -33,6 +33,7 @@
   const currentName = $('current-name');
   const openStoryEl = $('open-story-name');
   const userInfoEl = $('user-info');
+  const filterInputEl = $('filter-input');
 
   // Populate the header user info
   if (typeof window !== 'undefined' && userInfoEl) {
@@ -62,6 +63,12 @@
 
   let currentStoryId = null;
   let currentStoryName = null;
+
+  // Filter state: filterQuery is the active search string; filterResults is the last
+  // server response (array of {id, name, matchingTiles, matchingHighlights}) or null
+  // when no filter is active.
+  let filterQuery = '';
+  let filterResults = null;
 
   // Global todo active state (on story list page)
   let globalTodoActive = false;
@@ -1090,15 +1097,61 @@
     return li;
   }
 
+  // --- Filter helpers ---
+
+  function getMatchingTiles() {
+    if (!filterQuery || !filterResults) return null; // null = no filter, show all
+    const match = filterResults.find(r => r.id === currentStoryId);
+    return match ? match.matchingTiles : []; // [] = story not matched, hide all
+  }
+
+  function getMatchingHighlights() {
+    if (!filterQuery || !filterResults) return null;
+    const match = filterResults.find(r => r.id === currentStoryId);
+    return match ? match.matchingHighlights : [];
+  }
+
+  async function applyFilter(q) {
+    filterQuery = q.trim().toLowerCase();
+    if (currentStoryId) {
+      // In binder view: fetch fresh results then re-render tile/highlight lists
+      if (filterQuery) {
+        try {
+          const results = await api(`/api/search?q=${encodeURIComponent(filterQuery)}`);
+          filterResults = Array.isArray(results) ? results : [];
+        } catch (e) {
+          console.error('filter search failed', e);
+          filterResults = [];
+        }
+      } else {
+        filterResults = null;
+      }
+      loadTilesList();
+      loadHighlightsList();
+    } else {
+      // In story list view: loadList handles the search internally
+      await loadList();
+    }
+  }
+
   async function loadList() {
     storyListEl.innerHTML = '';
     try {
       const list = await api('/api/list');
       const items = Array.isArray(list) ? list : [];
       items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      items.forEach(item => {
-        storyListEl.appendChild(buildStoryItem(item));
-      });
+      if (filterQuery) {
+        const results = await api(`/api/search?q=${encodeURIComponent(filterQuery)}`);
+        filterResults = Array.isArray(results) ? results : [];
+        const matchIds = new Set(filterResults.map(r => r.id));
+        items.filter(item => matchIds.has(item.id))
+             .forEach(item => storyListEl.appendChild(buildStoryItem(item)));
+      } else {
+        filterResults = null;
+        items.forEach(item => {
+          storyListEl.appendChild(buildStoryItem(item));
+        });
+      }
     } catch (e) {
       console.error('failed to load list', e);
       storyListEl.innerHTML = '<li class="error">Failed to load</li>';
@@ -1132,7 +1185,18 @@
   function loadTilesList() {
     binderTilesList.innerHTML = '';
     if (!currentStoryId) return;
-    tilesOrder.forEach(filename => {
+    const matchingTiles = getMatchingTiles(); // null = show all, [] = show none
+    const visible = tilesOrder.filter(filename =>
+      matchingTiles === null || matchingTiles.includes(filename)
+    );
+    if (visible.length === 0 && matchingTiles !== null) {
+      const placeholder = document.createElement('li');
+      placeholder.className = 'binder-placeholder';
+      placeholder.textContent = 'No matching tiles';
+      binderTilesList.appendChild(placeholder);
+      return;
+    }
+    visible.forEach(filename => {
       const tile = { filename, name: tileNamesCache[filename] || filename.replace(/\.md$/, '') };
       binderTilesList.appendChild(buildTileItem(tile));
     });
@@ -1320,6 +1384,11 @@
       if (res && res.filename) {
         tilesOrder.push(res.filename);
         tilesCache[res.filename] = '';
+        // If a filter is active, include the new tile so it shows immediately
+        if (filterQuery && filterResults) {
+          const match = filterResults.find(r => r.id === currentStoryId);
+          if (match) match.matchingTiles.push(res.filename);
+        }
         loadTilesList();
         openTile(res.filename);
       }
@@ -1380,17 +1449,18 @@
   function loadHighlightsList() {
     binderHighlightsList.innerHTML = '';
     if (!currentStoryId) return;
-    if (highlightsList.length === 0) {
+    const matchingHighlights = getMatchingHighlights(); // null = show all, [] = show none
+    const sorted = getSortedHighlights().filter(hl =>
+      matchingHighlights === null || matchingHighlights.includes(hl.filename)
+    );
+    if (sorted.length === 0) {
       const placeholder = document.createElement('li');
       placeholder.className = 'binder-placeholder';
-      placeholder.textContent = 'No highlights yet';
+      placeholder.textContent = matchingHighlights !== null ? 'No matching highlights' : 'No highlights yet';
       binderHighlightsList.appendChild(placeholder);
       return;
     }
-    const sorted = getSortedHighlights();
-    sorted.forEach(hl => {
-      binderHighlightsList.appendChild(buildHighlightItem(hl));
-    });
+    sorted.forEach(hl => binderHighlightsList.appendChild(buildHighlightItem(hl)));
   }
 
   function buildHighlightItem(hl) {
@@ -1585,6 +1655,11 @@
       });
       if (res && res.filename) {
         await fetchHighlightsList();
+        // If a filter is active, include the new highlight so it shows immediately
+        if (filterQuery && filterResults) {
+          const match = filterResults.find(r => r.id === currentStoryId);
+          if (match) match.matchingHighlights.push(res.filename);
+        }
         loadHighlightsList();
         openHighlight(res.filename);
       }
@@ -1829,6 +1904,15 @@
     showStoryList();
     loadList();
   });
+
+  // Filter input: debounced, resets on clear
+  if (filterInputEl) {
+    let filterDebounce = null;
+    filterInputEl.addEventListener('input', () => {
+      clearTimeout(filterDebounce);
+      filterDebounce = setTimeout(() => applyFilter(filterInputEl.value), 300);
+    });
+  }
   btnAddTile.addEventListener('click', addTile);
   btnAddHighlight.addEventListener('click', addHighlight);
 

@@ -277,6 +277,62 @@ app.get('/api/list', async (req, res) => {
   }
 });
 
+// Search across story names, tile names/content, highlight names/content
+app.get('/api/search', async (req, res) => {
+  const q = (req.query.q || '').trim().toLowerCase();
+  if (!q) return res.json([]);
+  try {
+    const username = getUsername(req);
+    await ensureUserData(username);
+    const meta = await readMeta(username);
+    const results = [];
+    for (const story of meta) {
+      const dir = storyDir(username, story.id);
+      const tilesDir = path.join(dir, 'tiles');
+      const highlightsDir = path.join(dir, 'highlights');
+      const nameMatches = story.name.toLowerCase().includes(q);
+      const matchingTiles = [];
+      const matchingHighlights = [];
+
+      try {
+        const order = JSON.parse(await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8'));
+        for (const filename of order) {
+          if (filename.replace(/\.md$/, '').toLowerCase().includes(q)) {
+            matchingTiles.push(filename);
+            continue;
+          }
+          try {
+            const content = await fs.readFile(path.join(tilesDir, filename), 'utf8');
+            if (content.toLowerCase().includes(q)) matchingTiles.push(filename);
+          } catch (e) {}
+        }
+      } catch (e) {}
+
+      try {
+        const files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
+        for (const filename of files) {
+          if (filename.replace(/\.md$/, '').toLowerCase().includes(q)) {
+            matchingHighlights.push(filename);
+            continue;
+          }
+          try {
+            const content = await fs.readFile(path.join(highlightsDir, filename), 'utf8');
+            if (content.toLowerCase().includes(q)) matchingHighlights.push(filename);
+          } catch (e) {}
+        }
+      } catch (e) {}
+
+      if (nameMatches || matchingTiles.length > 0 || matchingHighlights.length > 0) {
+        results.push({ id: story.id, name: story.name, matchingTiles, matchingHighlights });
+      }
+    }
+    res.json(results);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'search failed' });
+  }
+});
+
 // Create story
 app.post('/api/create', async (req, res) => {
   const name = (req.body && req.body.name) ? String(req.body.name) : 'Untitled';

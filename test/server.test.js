@@ -661,6 +661,118 @@ describe('Security', () => {
 });
 
 // ============================================================================
+// INTEGRATION TESTS: Search
+// ============================================================================
+
+describe('Search', () => {
+  let storyId;
+
+  before(async () => {
+    await setupTestEnv();
+    const story = (await request.post('/api/create')
+      .send({ name: 'Adventures in Testing' }).expect(200)).body;
+    storyId = story.id;
+
+    // Write tile content
+    await request.post(`/api/story/${storyId}/tiles/chapter-1.md/save`)
+      .send({ content: 'Alice walked into the forest at dawn.' })
+      .expect(200);
+
+    // Create a second tile
+    await request.post(`/api/story/${storyId}/tiles`).send({}).expect(200);
+    await request.post(`/api/story/${storyId}/tiles/chapter-2.md/save`)
+      .send({ content: 'The old castle stood on the hill.' })
+      .expect(200);
+
+    // Create a highlight
+    await request.post(`/api/story/${storyId}/highlights`).send({}).expect(200);
+    await request.post(`/api/story/${storyId}/highlights/highlight-1.md/save`)
+      .send({ content: 'Alice: main character, brave and curious.' })
+      .expect(200);
+  });
+
+  after(async () => { await rmrf(tmpDir); });
+
+  it('GET /api/search returns empty array for empty query', async () => {
+    const res = await request.get('/api/search?q=').expect(200);
+    assert.deepEqual(res.body, []);
+  });
+
+  it('GET /api/search returns empty array with no q param', async () => {
+    const res = await request.get('/api/search').expect(200);
+    assert.deepEqual(res.body, []);
+  });
+
+  it('GET /api/search matches by story name', async () => {
+    const res = await request.get('/api/search?q=Adventures').expect(200);
+    const match = res.body.find(r => r.id === storyId);
+    assert.ok(match, 'story should be in results when name matches');
+    assert.equal(match.name, 'Adventures in Testing');
+  });
+
+  it('GET /api/search is case-insensitive', async () => {
+    const res = await request.get('/api/search?q=adventures').expect(200);
+    const match = res.body.find(r => r.id === storyId);
+    assert.ok(match, 'search should be case-insensitive');
+  });
+
+  it('GET /api/search matches by tile content', async () => {
+    const res = await request.get('/api/search?q=forest').expect(200);
+    const match = res.body.find(r => r.id === storyId);
+    assert.ok(match);
+    assert.ok(match.matchingTiles.includes('chapter-1.md'),
+      'chapter-1 contains "forest" and should be in matchingTiles');
+    assert.ok(!match.matchingTiles.includes('chapter-2.md'),
+      'chapter-2 does not contain "forest" and should not be in matchingTiles');
+  });
+
+  it('GET /api/search matches by tile name', async () => {
+    const res = await request.get('/api/search?q=chapter-2').expect(200);
+    const match = res.body.find(r => r.id === storyId);
+    assert.ok(match);
+    assert.ok(match.matchingTiles.includes('chapter-2.md'));
+  });
+
+  it('GET /api/search matches by highlight content', async () => {
+    const res = await request.get('/api/search?q=brave').expect(200);
+    const match = res.body.find(r => r.id === storyId);
+    assert.ok(match);
+    assert.ok(match.matchingHighlights.includes('highlight-1.md'));
+    assert.equal(match.matchingTiles.length, 0);
+  });
+
+  it('GET /api/search matches by highlight name', async () => {
+    const res = await request.get('/api/search?q=highlight-1').expect(200);
+    const match = res.body.find(r => r.id === storyId);
+    assert.ok(match);
+    assert.ok(match.matchingHighlights.includes('highlight-1.md'));
+  });
+
+  it('GET /api/search excludes non-matching stories', async () => {
+    const other = (await request.post('/api/create')
+      .send({ name: 'Completely Unrelated' }).expect(200)).body;
+    try {
+      const res = await request.get('/api/search?q=Adventures').expect(200);
+      assert.ok(!res.body.find(r => r.id === other.id),
+        'unrelated story should not appear in results');
+    } finally {
+      await request.delete(`/api/story/${other.id}`).catch(() => {});
+    }
+  });
+
+  it('GET /api/search result includes both matchingTiles and matchingHighlights fields', async () => {
+    const res = await request.get('/api/search?q=alice').expect(200);
+    const match = res.body.find(r => r.id === storyId);
+    assert.ok(match);
+    assert.ok(Array.isArray(match.matchingTiles));
+    assert.ok(Array.isArray(match.matchingHighlights));
+    // "alice" appears in chapter-1 content and in highlight-1 content
+    assert.ok(match.matchingTiles.includes('chapter-1.md'));
+    assert.ok(match.matchingHighlights.includes('highlight-1.md'));
+  });
+});
+
+// ============================================================================
 // EDGE CASES
 // ============================================================================
 
