@@ -1,8 +1,7 @@
-const { describe, it, before, after, beforeEach } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
 const fs = require('fs').promises;
-const fsSync = require('fs');
 const os = require('os');
 
 // --- Helpers ---
@@ -15,41 +14,23 @@ async function rmrf(dir) {
 }
 
 async function setupTestEnv() {
-  // Create isolated temp directory for test data
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'neowriter-test-'));
 
-  // Set env vars BEFORE requiring server
   process.env.MODE = 'LOCAL';
+  process.env.DATA_DIR = tmpDir;
   delete process.env.CLIENT_ID;
 
-  // Patch DATA_DIR to use temp directory
-  // We need to clear the module cache so server.js re-evaluates
-  const serverPath = require.resolve('../server');
-  delete require.cache[serverPath];
-
-  // Monkey-patch __dirname in the loaded module isn't possible cleanly,
-  // so we patch the DATA_DIR via a different approach: override after require
-  app = require('../server');
-
-  // Override the DATA_DIR by creating the expected data/anonymous structure
-  const dataDir = path.join(path.dirname(serverPath), 'data');
-  const anonDir = path.join(dataDir, 'anonymous');
-
-  // Back up original data if it exists, use a test marker
-  // Actually, since we're in LOCAL mode, data goes to ./data/anonymous
-  // We'll ensure it exists and clean up test artifacts after
-  await fs.mkdir(anonDir, { recursive: true });
-
-  // Ensure metadata.json exists (the server does this on startup)
-  const metaPath = path.join(anonDir, 'metadata.json');
-  try {
-    await fs.access(metaPath);
-  } catch (e) {
-    await fs.writeFile(metaPath, '[]', 'utf8');
+  // Re-evaluate all local modules so they pick up the fresh DATA_DIR.
+  // dotenv does not overwrite already-set env vars, so DATA_DIR above is safe.
+  const projectRoot = path.resolve(__dirname, '..');
+  for (const key of Object.keys(require.cache)) {
+    if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
+      delete require.cache[key];
+    }
   }
 
-  const supertest = require('supertest');
-  request = supertest(app);
+  app = require('../server');
+  request = require('supertest')(app);
 }
 
 // ============================================================================
@@ -57,52 +38,49 @@ async function setupTestEnv() {
 // ============================================================================
 
 describe('Utility functions', () => {
-  // We test the sanitize functions by observing their effects through the API
-  // since they are not exported. Direct unit tests would require refactoring.
+  // We test sanitize indirectly via the API: sanitizeFilename is not exported.
+  before(async () => { await setupTestEnv(); });
+  after(async () => { await rmrf(tmpDir); });
 
   it('sanitizeFilename: accented characters are stripped via tile rename', async () => {
-    await setupTestEnv();
-
-    // Create a story
     const story = (await request.post('/api/create')
       .send({ name: 'Sanitize Test' }).expect(200)).body;
-
-    // Rename tile with accented name
-    const res = await request.post(`/api/story/${story.id}/tiles/chapter-1.md/rename`)
-      .send({ name: 'Cafe Resume Noel' })
-      .expect(200);
-
-    assert.equal(res.body.filename, 'cafe-resume-noel.md');
-    assert.equal(res.body.name, 'Cafe Resume Noel');
-
-    // Cleanup
-    await request.delete(`/api/story/${story.id}`).expect(200);
+    try {
+      // Names with real diacritics — exercises the NFD normalisation path
+      const res = await request.post(`/api/story/${story.id}/tiles/chapter-1.md/rename`)
+        .send({ name: 'Café Résumé Noël' })
+        .expect(200);
+      assert.equal(res.body.filename, 'cafe-resume-noel.md');
+      assert.equal(res.body.name, 'Café Résumé Noël');
+    } finally {
+      await request.delete(`/api/story/${story.id}`).catch(() => {});
+    }
   });
 
   it('sanitizeFilename: special characters and spaces become hyphens', async () => {
     const story = (await request.post('/api/create')
       .send({ name: 'Special Chars' }).expect(200)).body;
-
-    const res = await request.post(`/api/story/${story.id}/tiles/chapter-1.md/rename`)
-      .send({ name: 'Hello World! @#$%' })
-      .expect(200);
-
-    assert.equal(res.body.filename, 'hello-world.md');
-
-    await request.delete(`/api/story/${story.id}`).expect(200);
+    try {
+      const res = await request.post(`/api/story/${story.id}/tiles/chapter-1.md/rename`)
+        .send({ name: 'Hello World! @#$%' })
+        .expect(200);
+      assert.equal(res.body.filename, 'hello-world.md');
+    } finally {
+      await request.delete(`/api/story/${story.id}`).catch(() => {});
+    }
   });
 
   it('sanitizeFilename: empty name becomes untitled', async () => {
     const story = (await request.post('/api/create')
       .send({ name: 'Empty Name Test' }).expect(200)).body;
-
-    const res = await request.post(`/api/story/${story.id}/tiles/chapter-1.md/rename`)
-      .send({ name: '!!!' })
-      .expect(200);
-
-    assert.equal(res.body.filename, 'untitled.md');
-
-    await request.delete(`/api/story/${story.id}`).expect(200);
+    try {
+      const res = await request.post(`/api/story/${story.id}/tiles/chapter-1.md/rename`)
+        .send({ name: '!!!' })
+        .expect(200);
+      assert.equal(res.body.filename, 'untitled.md');
+    } finally {
+      await request.delete(`/api/story/${story.id}`).catch(() => {});
+    }
   });
 });
 
@@ -112,12 +90,14 @@ describe('Utility functions', () => {
 
 describe('Story CRUD', () => {
   before(async () => { await setupTestEnv(); });
+  after(async () => { await rmrf(tmpDir); });
 
   let storyId;
 
-  it('GET /api/list returns empty array initially or existing stories', async () => {
+  it('GET /api/list returns empty array initially', async () => {
     const res = await request.get('/api/list').expect(200);
     assert.ok(Array.isArray(res.body));
+    assert.equal(res.body.length, 0);
   });
 
   it('POST /api/create creates a story with default tile', async () => {
@@ -140,7 +120,6 @@ describe('Story CRUD', () => {
 
     assert.equal(res.body.name, 'Untitled');
 
-    // Cleanup
     await request.delete(`/api/story/${res.body.id}`).expect(200);
   });
 
@@ -169,7 +148,6 @@ describe('Story CRUD', () => {
 
     assert.equal(res.body.name, 'Renamed Story');
 
-    // Verify rename persisted
     const meta = await request.get(`/api/story/${storyId}`).expect(200);
     assert.equal(meta.body.name, 'Renamed Story');
   });
@@ -187,25 +165,15 @@ describe('Story CRUD', () => {
   });
 
   it('DELETE /api/story/:id deletes a story', async () => {
-    // Create a disposable story
     const story = (await request.post('/api/create')
       .send({ name: 'To Delete' }).expect(200)).body;
 
     await request.delete(`/api/story/${story.id}`).expect(200);
-
-    // Verify it's gone
     await request.get(`/api/story/${story.id}`).expect(404);
   });
 
   it('DELETE /api/story/:id returns 404 for non-existent story', async () => {
     await request.delete('/api/story/non-existent-id').expect(404);
-  });
-
-  // Cleanup the main test story
-  after(async () => {
-    if (storyId) {
-      await request.delete(`/api/story/${storyId}`);
-    }
   });
 });
 
@@ -223,9 +191,7 @@ describe('Tiles', () => {
     storyId = story.id;
   });
 
-  after(async () => {
-    await request.delete(`/api/story/${storyId}`);
-  });
+  after(async () => { await rmrf(tmpDir); });
 
   it('GET /api/story/:id/tiles lists tiles (starts with chapter-1)', async () => {
     const res = await request.get(`/api/story/${storyId}/tiles`).expect(200);
@@ -259,7 +225,6 @@ describe('Tiles', () => {
       .send({ content })
       .expect(200);
 
-    // Verify content was saved
     const res = await request.get(`/api/story/${storyId}/tiles/chapter-1.md`).expect(200);
     assert.equal(res.body.content, content);
   });
@@ -284,7 +249,6 @@ describe('Tiles', () => {
     assert.equal(res.body.filename, 'prologue.md');
     assert.equal(res.body.name, 'Prologue');
 
-    // Verify old name is gone, new name works
     await request.get(`/api/story/${storyId}/tiles/chapter-2.md`).expect(404);
     await request.get(`/api/story/${storyId}/tiles/prologue.md`).expect(200);
   });
@@ -296,10 +260,8 @@ describe('Tiles', () => {
   });
 
   it('POST /api/story/:id/tiles/:filename/rename handles collision (appends counter)', async () => {
-    // Create a tile, rename chapter-1 to same name -> should get -2 suffix
     await request.post(`/api/story/${storyId}/tiles`).send({}).expect(200); // chapter-3
 
-    // Rename chapter-3 to "Prologue" which already exists
     const renamed = await request.post(`/api/story/${storyId}/tiles/chapter-3.md/rename`)
       .send({ name: 'Prologue' })
       .expect(200);
@@ -311,13 +273,11 @@ describe('Tiles', () => {
     const tiles = (await request.get(`/api/story/${storyId}/tiles`).expect(200)).body;
     const filenames = tiles.map(t => t.filename);
 
-    // Reverse the order
     const reversed = [...filenames].reverse();
     await request.post(`/api/story/${storyId}/tiles/reorder`)
       .send({ order: reversed })
       .expect(200);
 
-    // Verify new order
     const after = (await request.get(`/api/story/${storyId}/tiles`).expect(200)).body;
     assert.deepEqual(after.map(t => t.filename), reversed);
   });
@@ -329,13 +289,9 @@ describe('Tiles', () => {
   });
 
   it('DELETE /api/story/:id/tiles/:filename deletes a tile', async () => {
-    // Delete prologue-2.md
     await request.delete(`/api/story/${storyId}/tiles/prologue-2.md`).expect(200);
-
-    // Verify it's gone
     await request.get(`/api/story/${storyId}/tiles/prologue-2.md`).expect(404);
 
-    // Verify it's removed from the tile list
     const tiles = (await request.get(`/api/story/${storyId}/tiles`).expect(200)).body;
     assert.ok(!tiles.find(t => t.filename === 'prologue-2.md'));
   });
@@ -363,9 +319,7 @@ describe('Highlights', () => {
     storyId = story.id;
   });
 
-  after(async () => {
-    await request.delete(`/api/story/${storyId}`);
-  });
+  after(async () => { await rmrf(tmpDir); });
 
   it('GET /api/story/:id/highlights starts empty', async () => {
     const res = await request.get(`/api/story/${storyId}/highlights`).expect(200);
@@ -399,12 +353,11 @@ describe('Highlights', () => {
   });
 
   it('POST /api/story/:id/highlights/:filename/rename renames and propagates to tiles', async () => {
-    // First, put the highlight name into a tile
+    // Write a tile that contains the highlight name in both lowercase and uppercase
     await request.post(`/api/story/${storyId}/tiles/chapter-1.md/save`)
       .send({ content: 'highlight-1 appears here, and HIGHLIGHT-1 is mentioned again.' })
       .expect(200);
 
-    // Rename the highlight
     const res = await request.post(`/api/story/${storyId}/highlights/highlight-1.md/rename`)
       .send({ name: 'Alice' })
       .expect(200);
@@ -412,11 +365,14 @@ describe('Highlights', () => {
     assert.equal(res.body.filename, 'alice.md');
     assert.equal(res.body.name, 'Alice');
 
-    // Verify the old highlight name was replaced in the tile content
+    // Verify case-preserving propagation: lowercase → alice, UPPERCASE → ALICE
     const tile = await request.get(`/api/story/${storyId}/tiles/chapter-1.md`).expect(200);
-    // The case-preserving replacement: "highlight-1" -> "alice", "HIGHLIGHT-1" -> "ALICE"
-    assert.ok(tile.body.content.includes('alice') || tile.body.content.includes('Alice'),
-      'tile content should contain the new highlight name');
+    assert.ok(tile.body.content.includes('alice'),
+      'lowercase occurrence should be replaced with lowercase new name');
+    assert.ok(tile.body.content.includes('ALICE'),
+      'uppercase occurrence should be replaced with uppercase new name');
+    assert.ok(!tile.body.content.includes('highlight-1'),
+      'old highlight name should no longer appear in the tile');
   });
 
   it('DELETE /api/story/:id/highlights/:filename deletes a highlight', async () => {
@@ -438,15 +394,12 @@ describe('Todos', () => {
       .send({ name: 'Todo Test Story' }).expect(200)).body;
     storyId = story.id;
 
-    // Write content with todo items
     await request.post(`/api/story/${storyId}/tiles/chapter-1.md/save`)
       .send({ content: '# Chapter 1\n\n- [ ] Write introduction\n- [ ] Add conflict\n- [x] Create outline\n' })
       .expect(200);
   });
 
-  after(async () => {
-    await request.delete(`/api/story/${storyId}`);
-  });
+  after(async () => { await rmrf(tmpDir); });
 
   it('GET /api/story/:id/todo extracts unchecked and checked items', async () => {
     const res = await request.get(`/api/story/${storyId}/todo`).expect(200);
@@ -458,11 +411,11 @@ describe('Todos', () => {
     assert.equal(unchecked.length, 2);
     assert.equal(checked.length, 1);
 
-    // Unchecked should come first
+    // Unchecked items come before checked
     assert.equal(res.body[0].checked, false);
     assert.equal(res.body[res.body.length - 1].checked, true);
 
-    // Verify structure
+    // Verify item structure
     assert.equal(res.body[0].text, 'Write introduction');
     assert.equal(res.body[0].filename, 'chapter-1.md');
     assert.equal(res.body[0].directory, 'tiles');
@@ -470,24 +423,28 @@ describe('Todos', () => {
   });
 
   it('POST /api/story/:id/todo/toggle checks an unchecked item', async () => {
+    // Read lineIndex from the API rather than hardcoding it
+    const todos = (await request.get(`/api/story/${storyId}/todo`).expect(200)).body;
+    const intro = todos.find(t => t.text === 'Write introduction');
+
     await request.post(`/api/story/${storyId}/todo/toggle`)
-      .send({ directory: 'tiles', filename: 'chapter-1.md', lineIndex: 2, checked: true })
+      .send({ directory: 'tiles', filename: 'chapter-1.md', lineIndex: intro.lineIndex, checked: true })
       .expect(200);
 
-    // Verify the todo is now checked
-    const res = await request.get(`/api/story/${storyId}/todo`).expect(200);
-    const item = res.body.find(t => t.text === 'Write introduction');
-    assert.equal(item.checked, true);
+    const after = (await request.get(`/api/story/${storyId}/todo`).expect(200)).body;
+    assert.equal(after.find(t => t.text === 'Write introduction').checked, true);
   });
 
   it('POST /api/story/:id/todo/toggle unchecks a checked item', async () => {
+    const todos = (await request.get(`/api/story/${storyId}/todo`).expect(200)).body;
+    const outline = todos.find(t => t.text === 'Create outline');
+
     await request.post(`/api/story/${storyId}/todo/toggle`)
-      .send({ directory: 'tiles', filename: 'chapter-1.md', lineIndex: 4, checked: false })
+      .send({ directory: 'tiles', filename: 'chapter-1.md', lineIndex: outline.lineIndex, checked: false })
       .expect(200);
 
-    const res = await request.get(`/api/story/${storyId}/todo`).expect(200);
-    const item = res.body.find(t => t.text === 'Create outline');
-    assert.equal(item.checked, false);
+    const after = (await request.get(`/api/story/${storyId}/todo`).expect(200)).body;
+    assert.equal(after.find(t => t.text === 'Create outline').checked, false);
   });
 
   it('POST /api/story/:id/todo/toggle returns 400 with missing params', async () => {
@@ -505,7 +462,6 @@ describe('Todos', () => {
   it('GET /api/todo returns global todos across all stories', async () => {
     const res = await request.get('/api/todo').expect(200);
     assert.ok(Array.isArray(res.body));
-    // Should include items from our story
     const ours = res.body.filter(t => t.storyId === storyId);
     assert.ok(ours.length > 0, 'global todo should include items from test story');
     assert.ok(ours[0].storyName, 'global todo items should have storyName');
@@ -526,9 +482,7 @@ describe('Pictures', () => {
     storyId = story.id;
   });
 
-  after(async () => {
-    await request.delete(`/api/story/${storyId}`);
-  });
+  after(async () => { await rmrf(tmpDir); });
 
   it('POST /api/story/:id/pictures uploads base64 image', async () => {
     // 1x1 red PNG pixel
@@ -590,15 +544,12 @@ describe('Publish', () => {
       .send({ name: 'Publish Test Story' }).expect(200)).body;
     storyId = story.id;
 
-    // Add some content
     await request.post(`/api/story/${storyId}/tiles/chapter-1.md/save`)
       .send({ content: '# Published Content\n\nHello world.' })
       .expect(200);
   });
 
-  after(async () => {
-    await request.delete(`/api/story/${storyId}`);
-  });
+  after(async () => { await rmrf(tmpDir); });
 
   it('GET /api/story/:id/published defaults to false', async () => {
     const res = await request.get(`/api/story/${storyId}/published`).expect(200);
@@ -637,9 +588,6 @@ describe('Publish', () => {
     await request.post(`/api/story/${storyId}/publish`)
       .send({ published: false })
       .expect(200);
-
-    // No longer visible publicly
-    const res = await request.get(`/public/story/anonymous/${storyId}`).expect(404);
   });
 
   it('GET /public/story/:username/:id returns 404 for unpublished story', async () => {
@@ -667,14 +615,14 @@ describe('Security', () => {
     storyId = story.id;
   });
 
-  after(async () => {
-    await request.delete(`/api/story/${storyId}`);
-  });
+  after(async () => { await rmrf(tmpDir); });
 
+  // Note: these tests pass because the target file does not exist at the
+  // resolved path. The server does not yet perform active path-traversal
+  // sanitisation on tile/highlight/picture filenames — a sanitisation check
+  // (similar to what todo/toggle does for `directory`) should be added.
   it('tile filename with path traversal does not escape directory', async () => {
-    // Attempt to read ../../.env via tile endpoint
     const res = await request.get(`/api/story/${storyId}/tiles/..%2F..%2F.env`);
-    // Should get 404 (tile not found), not the .env contents
     assert.ok([400, 404].includes(res.status),
       `expected 400 or 404, got ${res.status}`);
   });
@@ -718,6 +666,7 @@ describe('Security', () => {
 
 describe('Edge cases', () => {
   before(async () => { await setupTestEnv(); });
+  after(async () => { await rmrf(tmpDir); });
 
   it('creating multiple stories assigns unique IDs', async () => {
     const ids = new Set();
@@ -728,7 +677,6 @@ describe('Edge cases', () => {
     }
     assert.equal(ids.size, 5, 'all story IDs should be unique');
 
-    // Cleanup
     for (const id of ids) {
       await request.delete(`/api/story/${id}`);
     }
@@ -738,18 +686,15 @@ describe('Edge cases', () => {
     const story = (await request.post('/api/create')
       .send({ name: 'Auto-increment Test' }).expect(200)).body;
 
-    // Already has chapter-1; create more
     const t2 = (await request.post(`/api/story/${story.id}/tiles`).send({}).expect(200)).body;
     const t3 = (await request.post(`/api/story/${story.id}/tiles`).send({}).expect(200)).body;
 
     assert.equal(t2.filename, 'chapter-2.md');
     assert.equal(t3.filename, 'chapter-3.md');
 
-    // Delete chapter-2 and create another -- should reuse chapter-2 or use chapter-4
+    // After deleting chapter-2: remaining = [chapter-1, chapter-3], next = chapter-4
     await request.delete(`/api/story/${story.id}/tiles/chapter-2.md`).expect(200);
     const t4 = (await request.post(`/api/story/${story.id}/tiles`).send({}).expect(200)).body;
-    // With 2 remaining files (chapter-1, chapter-3), next number = length+1 = 3, but chapter-3 exists, so it tries 4
-    // Actually: files.length=2, num starts at 3, chapter-3.md exists, so num becomes 4
     assert.equal(t4.filename, 'chapter-4.md');
 
     await request.delete(`/api/story/${story.id}`);
@@ -759,7 +704,7 @@ describe('Edge cases', () => {
     const story = (await request.post('/api/create')
       .send({ name: 'Unicode Test' }).expect(200)).body;
 
-    const unicodeContent = '# 你好世界\n\nEmoji: 🎭📝\nAccents: cafe resume\nSymbols: \u2021keyword \u2192 arrow';
+    const unicodeContent = '# 你好世界\n\nEmoji: 🎭📝\nAccents: café résumé\nSymbols: ‡keyword → arrow';
     await request.post(`/api/story/${story.id}/tiles/chapter-1.md/save`)
       .send({ content: unicodeContent })
       .expect(200);

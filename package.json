@@ -5,11 +5,14 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/server.test.js"
+    "test": "npm run test:server && npm run test:browser",
+    "test:server": "node --test test/server.test.js",
+    "test:browser": "playwright test"
   },
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "supertest": "^6.3.3"
   },
   "dependencies": {

@@ -7,7 +7,7 @@ const ROOT = __dirname.endsWith("config")
   : __dirname;
 
 
-const DATA_DIR = path.join(ROOT, "data");
+const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, "data");
 
 // Ensure base data directory exists (used at startup)
 async function ensureDataDir() {
