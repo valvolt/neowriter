@@ -172,6 +172,13 @@
               html(token) {
                 const raw = typeof token === 'string' ? token : (token.raw || token.text || '');
                 return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              },
+              link(token) {
+                const href = (token && token.href) || '';
+                const safe = /^https?:\/\//i.test(href) || href.startsWith('/') || href.startsWith('#');
+                const url = safe ? href.replace(/"/g, '%22') : '#';
+                const text = (token && token.text) || url;
+                return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
               }
             }
           });
