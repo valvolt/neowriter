@@ -657,6 +657,77 @@ describe('Security', () => {
     assert.equal(res.body.name, longName);
     await request.delete(`/api/story/${res.body.id}`);
   });
+
+  // --- S1: safeJoin — path traversal via upload body and todo filename ---
+
+  it('picture upload sanitizes path-traversal in name field', async () => {
+    // path.basename strips the leading '../' so the file lands in picturesDir as 'evil.png'
+    const gif1x1 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: '../evil.png', data: gif1x1 })
+      .expect(200);
+    assert.ok(!res.body.filename.includes('/'), 'filename must not contain /');
+    assert.ok(!res.body.filename.includes('..'), 'filename must not contain ..');
+    assert.ok(res.body.filename.endsWith('.png'), 'filename must keep the extension');
+  });
+
+  it('picture upload sanitizes deep path-traversal in name field', async () => {
+    const gif1x1 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: '../../../../etc/passwd.png', data: gif1x1 })
+      .expect(200);
+    assert.equal(res.body.filename, 'passwd.png');
+  });
+
+  it('todo toggle filename with path traversal resolves inside expected dir', async () => {
+    // '../../metadata.json' becomes 'metadata.json' after basename — not found in tiles/ → 404
+    const res = await request.post(`/api/story/${storyId}/todo/toggle`)
+      .send({ directory: 'tiles', filename: '../../metadata.json', lineIndex: 0, checked: true });
+    assert.equal(res.status, 404);
+  });
+
+  // --- S2: SSRF guard — URL download blocks private/internal hosts and bad protocols ---
+
+  it('picture URL download blocks loopback IP (127.0.0.1)', async () => {
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'test.png', url: 'http://127.0.0.1/image.png' });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /private|internal/i);
+  });
+
+  it('picture URL download blocks RFC-1918 IP (192.168.x.x)', async () => {
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'test.png', url: 'http://192.168.1.1/image.png' });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /private|internal/i);
+  });
+
+  it('picture URL download blocks RFC-1918 IP (10.x.x.x)', async () => {
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'test.png', url: 'http://10.0.0.1/image.png' });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /private|internal/i);
+  });
+
+  it('picture URL download blocks link-local IP (169.254.x.x)', async () => {
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'test.png', url: 'http://169.254.169.254/latest/meta-data/' });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /private|internal/i);
+  });
+
+  it('picture URL download blocks RFC-1918 172.16/12 range', async () => {
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'test.png', url: 'http://172.20.0.1/image.png' });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /private|internal/i);
+  });
+
+  it('picture URL download rejects non-http(s) protocol', async () => {
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'test.png', url: 'file:///etc/passwd' });
+    assert.equal(res.status, 400);
+  });
 });
 
 // ============================================================================

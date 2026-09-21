@@ -65,6 +65,9 @@ const storiesRouter = require('./routes/stories')({
 });
 app.use('/api', requireUser, storiesRouter);
 
+const dns = require('dns');
+const net = require('net');
+
 // --- Path safety helper ---
 
 // Join a user-supplied filename to a trusted base dir, rejecting any traversal.
@@ -76,6 +79,44 @@ function safeJoin(dir, filename) {
     throw err;
   }
   return joined;
+}
+
+// --- SSRF guard helpers ---
+
+const DOWNLOAD_TIMEOUT_MS = 10_000;
+const DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024;
+const DOWNLOAD_MAX_REDIRECTS = 5;
+
+function isPrivateIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 127) return true;                                  // loopback 127.x
+    if (a === 10) return true;                                   // RFC-1918 10.x
+    if (a === 172 && b >= 16 && b <= 31) return true;           // RFC-1918 172.16-31.x
+    if (a === 192 && b === 168) return true;                     // RFC-1918 192.168.x
+    if (a === 169 && b === 254) return true;                     // link-local
+    if (a === 0) return true;                                    // unspecified
+    if (a === 100 && b >= 64 && b <= 127) return true;          // CGNAT 100.64/10
+  } else if (net.isIPv6(ip)) {
+    const n = ip.toLowerCase();
+    if (n === '::1') return true;
+    if (n.startsWith('fe80:')) return true;                      // link-local
+    if (n.startsWith('fc') || n.startsWith('fd')) return true;  // unique-local
+    if (n === '::') return true;                                 // unspecified
+  }
+  return false;
+}
+
+async function validateRemoteHost(hostname) {
+  let addresses;
+  try {
+    addresses = await dns.promises.lookup(hostname, { all: true });
+  } catch (e) {
+    throw new Error('SSRF_DNS');
+  }
+  for (const { address } of addresses) {
+    if (isPrivateIp(address)) throw new Error('SSRF_BLOCKED');
+  }
 }
 
 // --- Per-user data helpers ---
@@ -1085,90 +1126,107 @@ app.post('/api/story/:id/pictures', async (req, res) => {
       await fs.writeFile(filePath, buffer);
       res.json({ ok: true, filename: sanitized, path: `/api/story/${id}/pictures/${sanitized}` });
     } else if (url) {
-      // Download from URL using native http/https
-      // Detect actual content type from response to correct the file extension
+      // Download from URL — hardened against SSRF, redirect abuse, and resource exhaustion
       const contentTypeToExt = {
-        'image/webp': '.webp',
-        'image/jpeg': '.jpg',
-        'image/png': '.png',
-        'image/gif': '.gif',
-        'image/svg+xml': '.svg',
-        'image/bmp': '.bmp',
-        'image/tiff': '.tiff',
-        'image/avif': '.avif',
-        'image/heic': '.heic',
+        'image/webp': '.webp', 'image/jpeg': '.jpg', 'image/png': '.png',
+        'image/gif': '.gif', 'image/svg+xml': '.svg', 'image/bmp': '.bmp',
+        'image/tiff': '.tiff', 'image/avif': '.avif', 'image/heic': '.heic',
         'image/heif': '.heif'
       };
       try {
         const downloadUrl = new URL(url);
-        const httpMod = downloadUrl.protocol === 'https:' ? require('https') : require('http');
+        if (downloadUrl.protocol !== 'https:' && downloadUrl.protocol !== 'http:') {
+          return res.status(400).json({ error: 'Only http and https URLs are supported.' });
+        }
         let actualFilename = sanitized;
         await new Promise((resolve, reject) => {
-          const doGet = (targetUrl) => {
-            const mod = (typeof targetUrl === 'string' && targetUrl.startsWith('https:')) ? require('https') : httpMod;
-            const reqOpts = typeof targetUrl === 'string' ? targetUrl : targetUrl;
-            const parsedUrl = new URL(typeof targetUrl === 'string' ? targetUrl : url);
+          let redirectCount = 0;
+          const doGet = async (targetUrl) => {
+            let parsedUrl;
+            try { parsedUrl = new URL(targetUrl); } catch (e) { return reject(new Error('BAD_URL')); }
+            // Guard against SSRF: reject private/internal hosts on every hop
+            try {
+              await validateRemoteHost(parsedUrl.hostname);
+            } catch (e) {
+              return reject(e);
+            }
+            const mod = parsedUrl.protocol === 'https:' ? require('https') : require('http');
             const options = {
               hostname: parsedUrl.hostname,
+              port: parsedUrl.port || undefined,
               path: parsedUrl.pathname + parsedUrl.search,
-              headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' }
+              headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NeoWriter/1.0)' }
             };
-            mod.get(options, (response) => {
+            const httpReq = mod.get(options, (response) => {
               if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-                doGet(response.headers.location);
-              } else if (response.statusCode !== 200) {
-                reject(new Error(`Server returned status ${response.statusCode}`));
-              } else {
-                // Detect actual content type and validate it's an image
-                const contentType = (response.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
-                if (!contentType || !contentType.startsWith('image/')) {
-                  reject(new Error('NOT_IMAGE'));
-                  response.resume(); // drain the response
-                  return;
+                response.resume();
+                if (++redirectCount > DOWNLOAD_MAX_REDIRECTS) {
+                  return reject(new Error('TOO_MANY_REDIRECTS'));
                 }
-                if (contentTypeToExt[contentType]) {
-                  const correctExt = contentTypeToExt[contentType];
-                  // Replace the extension in the filename if it differs
-                  const currentExt = path.extname(actualFilename).toLowerCase();
-                  if (currentExt !== correctExt) {
-                    const baseName = actualFilename.substring(0, actualFilename.length - currentExt.length);
-                    actualFilename = baseName + correctExt;
-                  }
+                doGet(response.headers.location).catch(reject);
+                return;
+              }
+              if (response.statusCode !== 200) {
+                response.resume();
+                return reject(new Error(`Server returned status ${response.statusCode}`));
+              }
+              const contentType = (response.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+              if (!contentType || !contentType.startsWith('image/')) {
+                response.resume();
+                return reject(new Error('NOT_IMAGE'));
+              }
+              if (contentTypeToExt[contentType]) {
+                const correctExt = contentTypeToExt[contentType];
+                const currentExt = path.extname(actualFilename).toLowerCase();
+                if (currentExt !== correctExt) {
+                  actualFilename = actualFilename.substring(0, actualFilename.length - currentExt.length) + correctExt;
                 }
-                const chunks = [];
-                response.on('data', chunk => chunks.push(chunk));
-                response.on('end', async () => {
+              }
+              const chunks = [];
+              let totalBytes = 0;
+              response.on('data', chunk => {
+                totalBytes += chunk.length;
+                if (totalBytes > DOWNLOAD_MAX_BYTES) {
+                  response.destroy();
+                  return reject(new Error('TOO_LARGE'));
+                }
+                chunks.push(chunk);
+              });
+              response.on('end', async () => {
+                try {
                   const buffer = Buffer.concat(chunks);
-                  const actualPath = path.join(picturesDir, actualFilename);
-                  // Check if file already exists (unless overwrite is requested)
+                  const actualPath = safeJoin(picturesDir, actualFilename);
                   if (!req.body.overwrite) {
                     try {
                       await fs.access(actualPath);
-                      // File exists — reject with EXISTS error
-                      reject(new Error('EXISTS:' + actualFilename));
-                      return;
-                    } catch (e) {
-                      // File doesn't exist — proceed
-                    }
+                      return reject(new Error('EXISTS:' + actualFilename));
+                    } catch (e) { /* proceed */ }
                   }
                   await fs.writeFile(actualPath, buffer);
                   resolve();
-                });
-                response.on('error', reject);
-              }
-            }).on('error', reject);
+                } catch (e) { reject(e); }
+              });
+              response.on('error', reject);
+            });
+            httpReq.setTimeout(DOWNLOAD_TIMEOUT_MS, () => httpReq.destroy(new Error('TIMEOUT')));
+            httpReq.on('error', reject);
           };
-          doGet(url);
+          doGet(url).catch(reject);
         });
         res.json({ ok: true, filename: actualFilename, path: `/api/story/${id}/pictures/${encodeURIComponent(actualFilename)}` });
       } catch (e) {
         if (e.message && e.message.startsWith('EXISTS:')) {
-          // File already exists — return structured response for client to handle
-          const existingFilename = e.message.substring(7);
-          res.json({ ok: false, error: 'EXISTS:' + existingFilename });
+          res.json({ ok: false, error: 'EXISTS:' + e.message.substring(7) });
         } else if (e.message === 'NOT_IMAGE') {
-          console.error('Failed to download image from URL', e);
           res.status(400).json({ error: 'Could not download the image (the server may be blocking automated downloads). Please save the file to your disk first, then upload it.' });
+        } else if (e.message === 'SSRF_BLOCKED' || e.message === 'SSRF_DNS') {
+          res.status(400).json({ error: 'URL refers to a private or internal host and cannot be fetched.' });
+        } else if (e.message === 'TOO_LARGE') {
+          res.status(400).json({ error: 'Image exceeds the 25 MB download limit.' });
+        } else if (e.message === 'TIMEOUT') {
+          res.status(400).json({ error: 'Download timed out. Please save the file to your disk first, then upload it.' });
+        } else if (e.message === 'TOO_MANY_REDIRECTS') {
+          res.status(400).json({ error: 'Too many redirects while downloading the image.' });
         } else {
           console.error('Failed to download image from URL', e);
           res.status(400).json({ error: 'Failed to download from URL. Please save the file to your disk first, then upload it.' });
