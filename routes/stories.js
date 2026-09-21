@@ -29,7 +29,9 @@ async function readMeta(DATA_DIR, username) {
 }
 async function writeMeta(DATA_DIR, username, meta) {
   const mf = metaFile(DATA_DIR, username);
-  await fs.writeFile(mf, JSON.stringify(meta, null, 2), 'utf8');
+  const tmp = mf + '.tmp';
+  await fs.writeFile(tmp, JSON.stringify(meta, null, 2), 'utf8');
+  await fs.rename(tmp, mf);
 }
 
 module.exports = function storiesRouter({ DATA_DIR, getUsername, getDisplayName, DEFAULT_USER }) {
@@ -69,7 +71,10 @@ module.exports = function storiesRouter({ DATA_DIR, getUsername, getDisplayName,
       const tileFilename = 'chapter-1.md';
       await fs.writeFile(path.join(tilesDir, tileFilename), '', 'utf8');
       // Tile order
-      await fs.writeFile(path.join(tilesDir, '_order.json'), JSON.stringify([tileFilename], null, 2), 'utf8');
+      const orderFile = path.join(tilesDir, '_order.json');
+      const orderTmp = orderFile + '.tmp';
+      await fs.writeFile(orderTmp, JSON.stringify([tileFilename], null, 2), 'utf8');
+      await fs.rename(orderTmp, orderFile);
       res.json({ id, name, author, tile: { filename: tileFilename, name: 'chapter-1' } });
     } catch (err) {
       console.error(err);

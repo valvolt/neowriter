@@ -84,9 +84,9 @@ function safeJoin(dir, filename) {
 
 // --- SSRF guard helpers ---
 
-const DOWNLOAD_TIMEOUT_MS = 10_000;
-const DOWNLOAD_MAX_BYTES = 25 * 1024 * 1024;
-const DOWNLOAD_MAX_REDIRECTS = 5;
+const DOWNLOAD_TIMEOUT_MS  = parseInt(process.env.DOWNLOAD_TIMEOUT_MS,  10) || 10_000;
+const DOWNLOAD_MAX_BYTES   = parseInt(process.env.DOWNLOAD_MAX_BYTES,   10) || 25 * 1024 * 1024;
+const DOWNLOAD_MAX_REDIRECTS = parseInt(process.env.DOWNLOAD_MAX_REDIRECTS, 10) || 5;
 
 function isPrivateIp(ip) {
   if (net.isIPv4(ip)) {
@@ -150,9 +150,14 @@ async function readMeta(username) {
   return JSON.parse(raw);
 }
 
+async function atomicWrite(filePath, data) {
+  const tmp = filePath + '.tmp';
+  await fs.writeFile(tmp, data, 'utf8');
+  await fs.rename(tmp, filePath);
+}
+
 async function writeMeta(username, meta) {
-  const mf = metaFile(username);
-  await fs.writeFile(mf, JSON.stringify(meta, null, 2), 'utf8');
+  await atomicWrite(metaFile(username), JSON.stringify(meta, null, 2));
 }
 
 // Get the base directory for a story
@@ -313,7 +318,7 @@ async function readTileOrder(username, id) {
 
 async function writeTileOrder(username, id, order) {
   const orderFile = path.join(storyDir(username, id), 'tiles', '_order.json');
-  await fs.writeFile(orderFile, JSON.stringify(order, null, 2), 'utf8');
+  await atomicWrite(orderFile, JSON.stringify(order, null, 2));
 }
 
 // --- Display names helpers (_names.json) ---
@@ -330,7 +335,7 @@ async function readNames(dirPath) {
 
 async function writeNames(dirPath, names) {
   const namesFile = path.join(dirPath, '_names.json');
-  await fs.writeFile(namesFile, JSON.stringify(names, null, 2), 'utf8');
+  await atomicWrite(namesFile, JSON.stringify(names, null, 2));
 }
 
 // Get display name for a file: check _names.json, fallback to filename without .md
