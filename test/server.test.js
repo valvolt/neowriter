@@ -288,6 +288,13 @@ describe('Tiles', () => {
       .expect(400);
   });
 
+  it('POST /api/story/:id/tiles/reorder rejects unknown filenames', async () => {
+    const res = await request.post(`/api/story/${storyId}/tiles/reorder`)
+      .send({ order: ['chapter-1.md', 'nonexistent.md'] });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /unknown/i);
+  });
+
   it('DELETE /api/story/:id/tiles/:filename deletes a tile', async () => {
     await request.delete(`/api/story/${storyId}/tiles/prologue-2.md`).expect(200);
     await request.get(`/api/story/${storyId}/tiles/prologue-2.md`).expect(404);

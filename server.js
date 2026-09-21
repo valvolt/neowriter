@@ -814,6 +814,18 @@ app.post('/api/story/:id/tiles/reorder', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
+    const tilesDir = path.join(storyDir(username, id), 'tiles');
+    let actualFiles;
+    try {
+      actualFiles = new Set((await fs.readdir(tilesDir)).filter(f => f.endsWith('.md')));
+    } catch (e) {
+      actualFiles = new Set();
+    }
+    const unknown = order.filter(f => !actualFiles.has(f));
+    if (unknown.length > 0) {
+      return res.status(400).json({ error: `unknown tile(s) in order: ${unknown.join(', ')}` });
+    }
+
     await writeTileOrder(username, id, order);
     res.json({ ok: true });
   } catch (err) {
