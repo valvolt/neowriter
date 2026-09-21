@@ -1122,9 +1122,18 @@
     return (editor.innerText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
+  function textToEditorDivs(text) {
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return text.split('\n').map(line => line ? `<div>${esc(line)}</div>` : '<div><br></div>').join('');
+  }
+
   function setEditorContent(text) {
-    if (!text) { editor.innerHTML = ''; return; }
-    if (!filterQuery) { editor.innerText = text; return; }
+    if (!filterQuery) {
+      // Use one <div> per line from the start so pressing Enter never causes a structural
+      // change (bare text node → <div>) that shifts font/margin mid-typing.
+      editor.innerHTML = text ? textToEditorDivs(text) : '<div><br></div>';
+      return;
+    }
     const ql = filterQuery.toLowerCase();
     const lower = text.toLowerCase();
     const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1187,7 +1196,7 @@
   function editorInsertAt(text, startOffset, endOffset) {
     const full = getEditorText();
     const newText = full.slice(0, startOffset) + text + full.slice(endOffset);
-    editor.innerText = newText;
+    editor.innerHTML = textToEditorDivs(newText);
     setCursorAtOffset(startOffset + text.length);
     editor.dispatchEvent(new Event('input'));
     editor.focus();
@@ -2381,7 +2390,7 @@
     // Remove previous ghost text if any
     if (speechGhostStart !== null && speechGhostLen > 0) {
       const full = getEditorText();
-      editor.innerText = full.substring(0, speechGhostStart) + full.substring(speechGhostStart + speechGhostLen);
+      editor.innerHTML = textToEditorDivs(full.substring(0, speechGhostStart) + full.substring(speechGhostStart + speechGhostLen));
       setCursorAtOffset(speechGhostStart);
       speechGhostLen = 0;
     }
@@ -2390,7 +2399,7 @@
 
     const pos = speechGhostStart !== null ? speechGhostStart : getEditorCursorOffset();
     const full = getEditorText();
-    editor.innerText = full.substring(0, pos) + text + full.substring(pos);
+    editor.innerHTML = textToEditorDivs(full.substring(0, pos) + text + full.substring(pos));
 
     if (isFinal) {
       // Move cursor after the inserted text
@@ -2475,7 +2484,7 @@
     // Clear any remaining ghost text
     if (speechGhostStart !== null && speechGhostLen > 0) {
       const full = getEditorText();
-      editor.innerText = full.substring(0, speechGhostStart) + full.substring(speechGhostStart + speechGhostLen);
+      editor.innerHTML = textToEditorDivs(full.substring(0, speechGhostStart) + full.substring(speechGhostStart + speechGhostLen));
       setCursorAtOffset(speechGhostStart);
     }
     speechGhostStart = null;
