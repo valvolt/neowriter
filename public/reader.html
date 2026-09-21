@@ -164,8 +164,17 @@
         markdown = markdown.replace(/^\*{3}$/gm, '<p style="text-align:center;letter-spacing:1em;margin:1em 0;">✦✦✦</p>');
         markdown = markdown.replace(/^- (?!\[[ xX]\])/gm, '\u2014 ');
 
-        // Render markdown
+        // Render markdown — use a sanitizing renderer so raw HTML in story
+        // content is escaped rather than injected into the DOM.
         if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+          marked.use({
+            renderer: {
+              html(token) {
+                const raw = typeof token === 'string' ? token : (token.raw || token.text || '');
+                return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              }
+            }
+          });
           contentEl.innerHTML = marked.parse(markdown);
         } else {
           contentEl.innerHTML = '<pre>' + markdown.replace(/</g, '&lt;') + '</pre>';

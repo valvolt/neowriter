@@ -10,7 +10,10 @@
 // - Binder UI: stories contain tiles and highlights sections
 // - Drag-and-drop tile reordering (not for highlights)
 (() => {
-  const api = (path, opts = {}) => fetch(path, opts).then(r => r.json());
+  const api = (path, opts = {}) => {
+    opts.headers = { 'X-Requested-With': 'XMLHttpRequest', ...opts.headers };
+    return fetch(path, opts).then(r => r.json());
+  };
   const $ = id => document.getElementById(id);
 
   const storyListEl = $('story-list');
@@ -121,7 +124,7 @@
   function initMermaidIfPresent() {
     if (typeof mermaid === 'undefined') return;
     try {
-      mermaid.initialize && mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+      mermaid.initialize && mermaid.initialize({ startOnLoad: false, securityLevel: 'antiscript' });
     } catch (e) {
       console.warn('mermaid.initialize failed', e);
     }
@@ -1083,7 +1086,7 @@
       const ok = confirm(`Delete "${item.name || 'Untitled'}"? This action cannot be undone.`);
       if (!ok) return;
       try {
-        const resp = await fetch(`/api/story/${item.id}`, { method: 'DELETE' });
+        const resp = await fetch(`/api/story/${item.id}`, { method: 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         if (!resp.ok) throw new Error('delete failed');
         if (currentStoryId === item.id) showStoryList();
         await loadList();
@@ -1416,7 +1419,7 @@
       const ok = confirm(`Delete tile "${tile.name}"? This cannot be undone.`);
       if (!ok) return;
       try {
-        const resp = await fetch(`/api/story/${currentStoryId}/tiles/${tile.filename}`, { method: 'DELETE' });
+        const resp = await fetch(`/api/story/${currentStoryId}/tiles/${tile.filename}`, { method: 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         if (!resp.ok) throw new Error('delete tile failed');
         delete tilesCache[tile.filename];
         tilesOrder = tilesOrder.filter(f => f !== tile.filename);
@@ -1680,7 +1683,7 @@
       const ok = confirm(`Delete highlight "${hl.name}"? This cannot be undone.`);
       if (!ok) return;
       try {
-        const resp = await fetch(`/api/story/${currentStoryId}/highlights/${hl.filename}`, { method: 'DELETE' });
+        const resp = await fetch(`/api/story/${currentStoryId}/highlights/${hl.filename}`, { method: 'DELETE', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         if (!resp.ok) throw new Error('delete highlight failed');
         if (editMode === 'highlight' && currentHighlightFilename === hl.filename) {
           editMode = null;
@@ -1932,7 +1935,7 @@
       try {
         await fetch(`/api/story/${currentStoryId}/tiles/${currentTileFilename}/save`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
           body: JSON.stringify({ content: getEditorText() })
         });
       } catch (e) {
@@ -1942,7 +1945,7 @@
       try {
         await fetch(`/api/story/${currentStoryId}/highlights/${currentHighlightFilename}/save`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
           body: JSON.stringify({ content: getEditorText() })
         });
       } catch (e) {

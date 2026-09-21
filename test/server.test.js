@@ -731,6 +731,124 @@ describe('Security', () => {
 });
 
 // ============================================================================
+// UNIT TESTS: escHtml (S3)
+// ============================================================================
+
+describe('escHtml utility', () => {
+  let escHtml;
+  before(() => { ({ escHtml } = require('../utils/escape')); });
+
+  it('escapes & < > " and single-quote', () => {
+    assert.equal(escHtml('&'), '&amp;');
+    assert.equal(escHtml('<'), '&lt;');
+    assert.equal(escHtml('>'), '&gt;');
+    assert.equal(escHtml('"'), '&quot;');
+    assert.equal(escHtml("'"), '&#x27;');
+  });
+
+  it('escapes a full XSS payload', () => {
+    const xss = '<script>alert(document.cookie)</script>';
+    const escaped = escHtml(xss);
+    assert.ok(!escaped.includes('<script>'), 'must not contain raw <script>');
+    assert.ok(escaped.includes('&lt;script&gt;'), 'must contain escaped version');
+  });
+
+  it('leaves safe text unchanged', () => {
+    assert.equal(escHtml('hello world'), 'hello world');
+    assert.equal(escHtml('Neo Writer'), 'Neo Writer');
+  });
+
+  it('coerces non-strings', () => {
+    assert.equal(escHtml(42), '42');
+    assert.equal(escHtml(null), 'null');
+  });
+});
+
+// ============================================================================
+// UNIT TESTS: requireUser CSRF guard (S6)
+// ============================================================================
+
+describe('requireUser middleware — CSRF guard (hosted mode)', () => {
+  let makeRequireUser, mw;
+  before(() => {
+    makeRequireUser = require('../middleware/auth');
+    mw = makeRequireUser(false);
+  });
+
+  function makeReq(method, xrwHeader) {
+    return {
+      method,
+      get: h => (h === 'X-Requested-With' ? xrwHeader : undefined),
+      oidc: { isAuthenticated: () => true }
+    };
+  }
+
+  function makeRes() {
+    const res = {
+      _status: null, _body: null,
+      status(code) { this._status = code; return this; },
+      json(body) { this._body = body; }
+    };
+    return res;
+  }
+
+  it('allows GET without header', () => {
+    const res = makeRes();
+    let nextCalled = false;
+    mw(makeReq('GET', undefined), res, () => { nextCalled = true; });
+    assert.ok(nextCalled);
+    assert.equal(res._status, null);
+  });
+
+  it('allows HEAD without header', () => {
+    const res = makeRes();
+    let nextCalled = false;
+    mw(makeReq('HEAD', undefined), res, () => { nextCalled = true; });
+    assert.ok(nextCalled);
+  });
+
+  it('rejects POST without header → 403', () => {
+    const res = makeRes();
+    let nextCalled = false;
+    mw(makeReq('POST', undefined), res, () => { nextCalled = true; });
+    assert.equal(res._status, 403);
+    assert.ok(!nextCalled);
+  });
+
+  it('rejects DELETE without header → 403', () => {
+    const res = makeRes();
+    let nextCalled = false;
+    mw(makeReq('DELETE', undefined), res, () => { nextCalled = true; });
+    assert.equal(res._status, 403);
+    assert.ok(!nextCalled);
+  });
+
+  it('allows POST with correct header', () => {
+    const res = makeRes();
+    let nextCalled = false;
+    mw(makeReq('POST', 'XMLHttpRequest'), res, () => { nextCalled = true; });
+    assert.ok(nextCalled);
+    assert.equal(res._status, null);
+  });
+
+  it('allows DELETE with correct header', () => {
+    const res = makeRes();
+    let nextCalled = false;
+    mw(makeReq('DELETE', 'XMLHttpRequest'), res, () => { nextCalled = true; });
+    assert.ok(nextCalled);
+  });
+
+  it('LOCAL mode always calls next regardless of header or method', () => {
+    const localMw = makeRequireUser(true);
+    const res = makeRes();
+    let nextCalled = false;
+    localMw(makeReq('DELETE', undefined), res, () => { nextCalled = true; });
+    assert.ok(nextCalled);
+    assert.equal(res._status, null);
+  });
+});
+
+// ============================================================================
 // INTEGRATION TESTS: Search
 // ============================================================================
 

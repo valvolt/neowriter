@@ -37,6 +37,7 @@ app.use(express.static(PUBLIC_DIR, { index: false }));
 
 // --- User helpers ---
 const { sanitizeUsername, sanitizeFilename } = require('./utils/sanitize');
+const { escHtml } = require('./utils/escape');
 function getUsername(req) {
   if (LOCAL_MODE) return DEFAULT_USER;
   if (req.oidc && req.oidc.isAuthenticated() && req.oidc.user) {
@@ -186,7 +187,10 @@ app.get('/', async (req, res) => {
       }
       if (published.length > 0) {
         storiesHtml = '<div class="stories"><h2>Published Stories</h2><ul>' +
-          published.map(s => `<li><a href="/read/${s.username}/${s.id}">${s.name}</a><span class="author">by ${s.author}</span></li>`).join('') +
+          published.map(s =>
+            `<li><a href="/read/${escHtml(s.username)}/${escHtml(s.id)}">${escHtml(s.name)}</a>` +
+            `<span class="author">by ${escHtml(s.author)}</span></li>`
+          ).join('') +
           '</ul></div>';
       }
     } catch (e) { /* ignore */ }
