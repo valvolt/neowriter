@@ -617,10 +617,9 @@ describe('Security', () => {
 
   after(async () => { await rmrf(tmpDir); });
 
-  // Note: these tests pass because the target file does not exist at the
-  // resolved path. The server does not yet perform active path-traversal
-  // sanitisation on tile/highlight/picture filenames — a sanitisation check
-  // (similar to what todo/toggle does for `directory`) should be added.
+  // path.basename() is applied by safeJoin() before joining, so traversal
+  // attempts like ..%2F..%2F.env resolve to a flat filename inside the
+  // expected directory and are then rejected with 404 (file not found).
   it('tile filename with path traversal does not escape directory', async () => {
     const res = await request.get(`/api/story/${storyId}/tiles/..%2F..%2F.env`);
     assert.ok([400, 404].includes(res.status),

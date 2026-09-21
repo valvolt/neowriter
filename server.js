@@ -65,6 +65,19 @@ const storiesRouter = require('./routes/stories')({
 });
 app.use('/api', requireUser, storiesRouter);
 
+// --- Path safety helper ---
+
+// Join a user-supplied filename to a trusted base dir, rejecting any traversal.
+function safeJoin(dir, filename) {
+  const joined = path.join(dir, path.basename(filename));
+  if (!joined.startsWith(dir + path.sep) && joined !== dir) {
+    const err = new Error('invalid filename');
+    err.status = 400;
+    throw err;
+  }
+  return joined;
+}
+
 // --- Per-user data helpers ---
 
 function userDir(username) {
@@ -469,7 +482,7 @@ app.post('/api/story/:id/todo/toggle', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), directory, filename);
+    const filePath = safeJoin(path.join(storyDir(username, id), directory), filename);
 
     let content = '';
     try {
@@ -595,7 +608,7 @@ app.get('/api/story/:id/tiles/:filename', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'story not found' });
 
     const tilesDir = path.join(storyDir(username, id), 'tiles');
-    const filePath = path.join(tilesDir, filename);
+    const filePath = safeJoin(tilesDir, filename);
     let content = '';
     try {
       content = await fs.readFile(filePath, 'utf8');
@@ -623,7 +636,7 @@ app.post('/api/story/:id/tiles/:filename/save', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), 'tiles', filename);
+    const filePath = safeJoin(path.join(storyDir(username, id), 'tiles'), filename);
     // Verify tile exists
     try {
       await fs.access(filePath);
@@ -652,7 +665,7 @@ app.post('/api/story/:id/tiles/:filename/rename', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'story not found' });
 
     const tilesDir = path.join(storyDir(username, id), 'tiles');
-    const oldPath = path.join(tilesDir, filename);
+    const oldPath = safeJoin(tilesDir, filename);
     try {
       await fs.access(oldPath);
     } catch (e) {
@@ -713,7 +726,7 @@ app.delete('/api/story/:id/tiles/:filename', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'story not found' });
 
     const tilesDir = path.join(storyDir(username, id), 'tiles');
-    const filePath = path.join(tilesDir, filename);
+    const filePath = safeJoin(tilesDir, filename);
     try {
       await fs.unlink(filePath);
     } catch (e) {
@@ -839,7 +852,7 @@ app.get('/api/story/:id/highlights/:filename', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'story not found' });
 
     const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    const filePath = path.join(highlightsDir, filename);
+    const filePath = safeJoin(highlightsDir, filename);
     let content = '';
     try {
       content = await fs.readFile(filePath, 'utf8');
@@ -867,7 +880,7 @@ app.post('/api/story/:id/highlights/:filename/save', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), 'highlights', filename);
+    const filePath = safeJoin(path.join(storyDir(username, id), 'highlights'), filename);
     try {
       await fs.access(filePath);
     } catch (e) {
@@ -895,7 +908,7 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'story not found' });
 
     const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    const oldPath = path.join(highlightsDir, filename);
+    const oldPath = safeJoin(highlightsDir, filename);
     try {
       await fs.access(oldPath);
     } catch (e) {
@@ -983,7 +996,7 @@ app.delete('/api/story/:id/highlights/:filename', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'story not found' });
 
     const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    const filePath = path.join(highlightsDir, filename);
+    const filePath = safeJoin(highlightsDir, filename);
     try {
       await fs.unlink(filePath);
     } catch (e) {
@@ -1016,7 +1029,7 @@ app.get('/api/story/:id/pictures/:filename', async (req, res) => {
     const item = meta.find(m => m.id === id);
     if (!item) return res.status(404).json({ error: 'story not found' });
 
-    const filePath = path.join(storyDir(username, id), 'pictures', filename);
+    const filePath = safeJoin(path.join(storyDir(username, id), 'pictures'), filename);
     try {
       await fs.access(filePath);
     } catch (e) {
@@ -1036,7 +1049,7 @@ app.get('/api/story/:id/pictures/:filename/exists', async (req, res) => {
   const filename = req.params.filename;
   try {
     const username = getUsername(req);
-    const filePath = path.join(storyDir(username, id), 'pictures', filename);
+    const filePath = safeJoin(path.join(storyDir(username, id), 'pictures'), filename);
     try {
       await fs.access(filePath);
       res.json({ exists: true });
@@ -1063,8 +1076,8 @@ app.post('/api/story/:id/pictures', async (req, res) => {
     const picturesDir = path.join(storyDir(username, id), 'pictures');
     await fs.mkdir(picturesDir, { recursive: true });
 
-    const sanitized = name; // trust the frontend to sanitize
-    const filePath = path.join(picturesDir, sanitized);
+    const sanitized = path.basename(name); // strip any path separators
+    const filePath = safeJoin(picturesDir, sanitized);
 
     if (data) {
       // base64 encoded file data
@@ -1245,14 +1258,16 @@ app.get('/public/stories', async (req, res) => {
 app.get('/public/story/:username/:id', async (req, res) => {
   const { username, id } = req.params;
   try {
-    const mf = path.join(DATA_DIR, username, 'metadata.json');
+    const safeUsername = path.basename(username);
+    const safeId = path.basename(id);
+    const mf = path.join(DATA_DIR, safeUsername, 'metadata.json');
     const raw = await fs.readFile(mf, 'utf8');
     const meta = JSON.parse(raw);
-    const item = meta.find(m => m.id === id);
+    const item = meta.find(m => m.id === safeId);
     if (!item || !item.published) return res.status(404).json({ error: 'not found or not published' });
 
     // Read tiles in order
-    const tilesDir = path.join(DATA_DIR, username, id, 'tiles');
+    const tilesDir = path.join(DATA_DIR, safeUsername, safeId, 'tiles');
     let order = [];
     try {
       const orderRaw = await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8');
@@ -1270,7 +1285,7 @@ app.get('/public/story/:username/:id', async (req, res) => {
     let content = '';
     for (const filename of order) {
       try {
-        const tile = await fs.readFile(path.join(tilesDir, filename), 'utf8');
+        const tile = await fs.readFile(safeJoin(tilesDir, filename), 'utf8');
         content += (content ? '\n\n' : '') + tile;
       } catch (e) {
         // skip unreadable tiles
@@ -1289,13 +1304,16 @@ app.get('/public/story/:username/:id/pictures/:filename', async (req, res) => {
   const { username, id, filename } = req.params;
   try {
     // Verify story is published
-    const mf = path.join(DATA_DIR, username, 'metadata.json');
+    const safeUsername = path.basename(username);
+    const safeId = path.basename(id);
+    const mf = path.join(DATA_DIR, safeUsername, 'metadata.json');
     const raw = await fs.readFile(mf, 'utf8');
     const meta = JSON.parse(raw);
-    const item = meta.find(m => m.id === id);
+    const item = meta.find(m => m.id === safeId);
     if (!item || !item.published) return res.status(404).send('Not found');
 
-    const filePath = path.join(DATA_DIR, username, id, 'pictures', filename);
+    const picturesDir = path.join(DATA_DIR, safeUsername, safeId, 'pictures');
+    const filePath = safeJoin(picturesDir, filename);
     try {
       await fs.access(filePath);
       res.sendFile(filePath);
@@ -1312,10 +1330,10 @@ app.get('/read/:username/:id', async (req, res) => {
   const { username, id } = req.params;
   try {
     // Verify story is published
-    const mf = path.join(DATA_DIR, username, 'metadata.json');
+    const mf = path.join(DATA_DIR, path.basename(username), 'metadata.json');
     const raw = await fs.readFile(mf, 'utf8');
     const meta = JSON.parse(raw);
-    const item = meta.find(m => m.id === id);
+    const item = meta.find(m => m.id === path.basename(id));
     if (!item || !item.published) return res.status(404).send('Story not found');
 
     const readerPath = path.join(PUBLIC_DIR, 'reader.html');
