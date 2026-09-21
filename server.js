@@ -64,7 +64,8 @@ const storiesRouter = require('./routes/stories')({
   getDisplayName,
   DEFAULT_USER
 });
-app.use('/api', requireUser, storiesRouter);
+app.use('/api', requireUser);   // gates every /api/* route, not just storiesRouter
+app.use('/api', storiesRouter);
 
 const dns = require('dns');
 const net = require('net');
@@ -180,8 +181,15 @@ async function ensureUserData(username) {
 
 async function readMeta(username) {
   const mf = metaFile(username);
-  const raw = await fs.readFile(mf, 'utf8');
-  return JSON.parse(raw);
+  try {
+    const raw = await fs.readFile(mf, 'utf8');
+    const meta = JSON.parse(raw);
+    if (!Array.isArray(meta)) throw new Error('metadata.json is not an array');
+    return meta;
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  }
 }
 
 async function atomicWrite(filePath, data) {
@@ -1422,6 +1430,7 @@ app.get('/public/story/:username/:id', async (req, res) => {
 
     res.json({ id, name: item.name, author: item.author || username, content });
   } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'not found or not published' });
     console.error(err);
     res.status(500).json({ error: 'failed to read published story' });
   }

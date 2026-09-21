@@ -24,8 +24,15 @@ async function ensureUserData(DATA_DIR, username) {
 }
 async function readMeta(DATA_DIR, username) {
   const mf = metaFile(DATA_DIR, username);
-  const raw = await fs.readFile(mf, 'utf8');
-  return JSON.parse(raw);
+  try {
+    const raw = await fs.readFile(mf, 'utf8');
+    const meta = JSON.parse(raw);
+    if (!Array.isArray(meta)) throw new Error('metadata.json is not an array');
+    return meta;
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  }
 }
 async function writeMeta(DATA_DIR, username, meta) {
   const mf = metaFile(DATA_DIR, username);

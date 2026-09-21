@@ -883,6 +883,217 @@ describe('requireUser middleware — CSRF guard (hosted mode)', () => {
 });
 
 // ============================================================================
+// INTEGRATION TESTS: S9 — requireUser gates all /api routes in hosted mode
+// ============================================================================
+
+describe('S9 — requireUser protects all /api routes in hosted mode', () => {
+  let hostedRequest, hostedTmpDir;
+
+  before(async () => {
+    hostedTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'neowriter-hosted-'));
+
+    // Stub express-openid-connect so auth() works without real OIDC credentials.
+    // The middleware sets req.oidc based on a test header, giving full control
+    // over authentication state without network calls.
+    const oidcKey = require.resolve('express-openid-connect');
+    require.cache[oidcKey] = {
+      id: oidcKey, filename: oidcKey, loaded: true,
+      exports: {
+        auth: () => (req, res, next) => {
+          req.oidc = { isAuthenticated: () => req.headers['x-test-authed'] === 'true' };
+          next();
+        }
+      }
+    };
+
+    process.env.MODE = 'HOSTED';
+    process.env.DATA_DIR = hostedTmpDir;
+    process.env.CLIENT_ID = 'test-client-id';
+    process.env.ISSUER_BASE_URL = 'https://test.auth0.com';
+    process.env.SECRET = 'a-secret-long-enough-for-tests-only-32ch';
+
+    const projectRoot = path.resolve(__dirname, '..');
+    for (const key of Object.keys(require.cache)) {
+      if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
+        delete require.cache[key];
+      }
+    }
+
+    const hostedApp = require('../server');
+    hostedRequest = require('supertest')(hostedApp);
+  });
+
+  after(async () => {
+    // Remove stub so subsequent tests (if any) load the real module
+    delete require.cache[require.resolve('express-openid-connect')];
+    await rmrf(hostedTmpDir);
+  });
+
+  // storiesRouter route — was already gated before S9
+  it('unauthenticated GET /api/list → 401', async () => {
+    const res = await hostedRequest.get('/api/list');
+    assert.equal(res.status, 401);
+    assert.match(res.body.error, /authentication required/i);
+  });
+
+  // Inline tile route — was NOT gated before S9 (returned 500 via null path.join)
+  it('unauthenticated GET /api/story/:id/tiles → 401 not 500', async () => {
+    const res = await hostedRequest.get('/api/story/any-id/tiles');
+    assert.equal(res.status, 401);
+    assert.match(res.body.error, /authentication required/i);
+  });
+
+  // Inline highlight route
+  it('unauthenticated GET /api/story/:id/highlights → 401 not 500', async () => {
+    const res = await hostedRequest.get('/api/story/any-id/highlights');
+    assert.equal(res.status, 401);
+  });
+
+  // Inline picture route (POST)
+  it('unauthenticated POST /api/story/:id/pictures → 401 not 500', async () => {
+    const res = await hostedRequest.post('/api/story/any-id/pictures')
+      .send({ name: 'x.png', data: '' });
+    assert.equal(res.status, 401);
+  });
+
+  // CSRF check: authenticated but missing header → 403
+  it('authenticated POST without X-Requested-With → 403', async () => {
+    const res = await hostedRequest.post('/api/story/any-id/tiles/reorder')
+      .set('x-test-authed', 'true')
+      .send({ order: [] });
+    assert.equal(res.status, 403);
+    assert.match(res.body.error, /CSRF/i);
+  });
+
+  // Auth + CSRF header present → middleware passes, handler reached (404 because story absent)
+  it('authenticated POST with X-Requested-With passes auth and reaches handler', async () => {
+    const res = await hostedRequest.post('/api/story/nonexistent/tiles/reorder')
+      .set('x-test-authed', 'true')
+      .set('X-Requested-With', 'XMLHttpRequest')
+      .send({ order: [] });
+    assert.notEqual(res.status, 401);
+    assert.notEqual(res.status, 403);
+  });
+});
+
+// ============================================================================
+// INTEGRATION TESTS: Publish — cross-user isolation (hosted mode)
+// ============================================================================
+
+describe('Publish — cross-user isolation (hosted mode)', () => {
+  let hostedRequest, hostedTmpDir;
+
+  // Derived usernames produced by sanitizeUsername() on the email addresses below
+  const ALICE = 'alice-test.com'; // sanitizeUsername('alice@test.com')
+  const BOB   = 'bob-test.com';   // sanitizeUsername('bob@test.com')
+
+  before(async () => {
+    hostedTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'neowriter-pub-'));
+
+    // Stub express-openid-connect: auth state and user identity driven by
+    // x-test-user header so tests can act as different users without OIDC.
+    const oidcKey = require.resolve('express-openid-connect');
+    require.cache[oidcKey] = {
+      id: oidcKey, filename: oidcKey, loaded: true,
+      exports: {
+        auth: () => (req, res, next) => {
+          const email = req.headers['x-test-user'];
+          req.oidc = {
+            isAuthenticated: () => !!email,
+            user: email ? { email } : undefined
+          };
+          next();
+        }
+      }
+    };
+
+    process.env.MODE = 'HOSTED';
+    process.env.DATA_DIR = hostedTmpDir;
+    process.env.CLIENT_ID = 'test-client-id';
+    process.env.ISSUER_BASE_URL = 'https://test.auth0.com';
+    process.env.SECRET = 'a-secret-long-enough-for-tests-only-32ch';
+
+    const projectRoot = path.resolve(__dirname, '..');
+    for (const key of Object.keys(require.cache)) {
+      if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
+        delete require.cache[key];
+      }
+    }
+
+    const hostedApp = require('../server');
+    hostedRequest = require('supertest')(hostedApp);
+  });
+
+  after(async () => {
+    delete require.cache[require.resolve('express-openid-connect')];
+    await rmrf(hostedTmpDir);
+  });
+
+  // Build headers that authenticate as a given user and satisfy the CSRF check
+  function asUser(email) {
+    return { 'x-test-user': email, 'X-Requested-With': 'XMLHttpRequest' };
+  }
+
+  let aliceStoryId;
+
+  it('Alice can create and publish a story', async () => {
+    const story = (await hostedRequest.post('/api/create')
+      .set(asUser('alice@test.com'))
+      .send({ name: 'Alice Story' })
+      .expect(200)).body;
+    aliceStoryId = story.id;
+
+    await hostedRequest.post(`/api/story/${aliceStoryId}/publish`)
+      .set(asUser('alice@test.com'))
+      .send({ published: true })
+      .expect(200);
+  });
+
+  it("published story appears in /public/stories with Alice's username", async () => {
+    const res = await hostedRequest.get('/public/stories').expect(200);
+    const found = res.body.find(s => s.id === aliceStoryId);
+    assert.ok(found, 'story should appear in public list');
+    assert.equal(found.username, ALICE);
+    assert.equal(found.name, 'Alice Story');
+  });
+
+  it("published story is accessible at the correct /public/story/:username path", async () => {
+    const res = await hostedRequest.get(`/public/story/${ALICE}/${aliceStoryId}`).expect(200);
+    assert.equal(res.body.id, aliceStoryId);
+    assert.equal(res.body.name, 'Alice Story');
+  });
+
+  it("published story is NOT accessible under Bob's namespace", async () => {
+    // The story lives in Alice's directory; Bob's namespace has no such id
+    await hostedRequest.get(`/public/story/${BOB}/${aliceStoryId}`).expect(404);
+  });
+
+  it("Bob cannot read Alice's tiles via the private API", async () => {
+    // getUsername() resolves to Bob's sanitized email → Bob's metadata has no such story
+    const res = await hostedRequest.get(`/api/story/${aliceStoryId}/tiles`)
+      .set(asUser('bob@test.com'));
+    assert.equal(res.status, 404);
+  });
+
+  it("Alice's unpublished story is not publicly accessible", async () => {
+    const story = (await hostedRequest.post('/api/create')
+      .set(asUser('alice@test.com'))
+      .send({ name: 'Alice Draft' })
+      .expect(200)).body;
+    await hostedRequest.get(`/public/story/${ALICE}/${story.id}`).expect(404);
+  });
+
+  it("unpublishing removes the story from /public/stories", async () => {
+    await hostedRequest.post(`/api/story/${aliceStoryId}/publish`)
+      .set(asUser('alice@test.com'))
+      .send({ published: false })
+      .expect(200);
+    const res = await hostedRequest.get('/public/stories').expect(200);
+    assert.ok(!res.body.find(s => s.id === aliceStoryId), 'unpublished story must not appear');
+  });
+});
+
+// ============================================================================
 // INTEGRATION TESTS: Search
 // ============================================================================
 
