@@ -1,3 +1,4 @@
+if (process.env.NODE_TEST_CONTEXT) { /* run via: npm run test:browser */ } else {
 const { test, expect } = require('@playwright/test');
 
 test.beforeEach(async ({ request }) => {
@@ -212,3 +213,4 @@ test('newly added tile is visible even when filter is active', async ({ request,
   await page.click('#btn-add-tile');
   await expect(page.locator('#binder-tiles-list li')).toHaveCount(2);
 });
+}

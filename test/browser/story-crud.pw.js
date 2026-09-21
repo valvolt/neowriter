@@ -1,3 +1,4 @@
+if (process.env.NODE_TEST_CONTEXT) { /* run via: npm run test:browser */ } else {
 const { test, expect } = require('@playwright/test');
 
 // Clean all stories before each test for a predictable starting state
@@ -119,3 +120,4 @@ test('multiple stories are listed in alphabetical order', async ({ page }) => {
   const names = await page.locator('#story-list .story-name').allTextContents();
   expect(names).toEqual(['Apple', 'Zebra']);
 });
+}

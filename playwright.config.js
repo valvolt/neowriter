@@ -2,6 +2,7 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: 'test/browser',
+  testMatch: '**/*.pw.js',
   use: {
     baseURL: 'http://localhost:3099',
     headless: true,

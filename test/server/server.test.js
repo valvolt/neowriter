@@ -2,6 +2,8 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
+const vm = require('vm');
 const os = require('os');
 
 // --- Helpers ---
@@ -22,14 +24,14 @@ async function setupTestEnv() {
 
   // Re-evaluate all local modules so they pick up the fresh DATA_DIR.
   // dotenv does not overwrite already-set env vars, so DATA_DIR above is safe.
-  const projectRoot = path.resolve(__dirname, '..');
+  const projectRoot = path.resolve(__dirname, '../..');
   for (const key of Object.keys(require.cache)) {
     if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
       delete require.cache[key];
     }
   }
 
-  app = require('../server');
+  app = require('../../server');
   request = require('supertest')(app);
 }
 
@@ -770,7 +772,7 @@ describe('Security', () => {
 
 describe('escHtml utility', () => {
   let escHtml;
-  before(() => { ({ escHtml } = require('../utils/escape')); });
+  before(() => { ({ escHtml } = require('../../utils/escape')); });
 
   it('escapes & < > " and single-quote', () => {
     assert.equal(escHtml('&'), '&amp;');
@@ -805,7 +807,7 @@ describe('escHtml utility', () => {
 describe('requireUser middleware — CSRF guard (hosted mode)', () => {
   let makeRequireUser, mw;
   before(() => {
-    makeRequireUser = require('../middleware/auth');
+    makeRequireUser = require('../../middleware/auth');
     mw = makeRequireUser(false);
   });
 
@@ -912,14 +914,14 @@ describe('S9 — requireUser protects all /api routes in hosted mode', () => {
     process.env.ISSUER_BASE_URL = 'https://test.auth0.com';
     process.env.SECRET = 'a-secret-long-enough-for-tests-only-32ch';
 
-    const projectRoot = path.resolve(__dirname, '..');
+    const projectRoot = path.resolve(__dirname, '../..');
     for (const key of Object.keys(require.cache)) {
       if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
         delete require.cache[key];
       }
     }
 
-    const hostedApp = require('../server');
+    const hostedApp = require('../../server');
     hostedRequest = require('supertest')(hostedApp);
   });
 
@@ -1013,14 +1015,14 @@ describe('Publish — cross-user isolation (hosted mode)', () => {
     process.env.ISSUER_BASE_URL = 'https://test.auth0.com';
     process.env.SECRET = 'a-secret-long-enough-for-tests-only-32ch';
 
-    const projectRoot = path.resolve(__dirname, '..');
+    const projectRoot = path.resolve(__dirname, '../..');
     for (const key of Object.keys(require.cache)) {
       if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
         delete require.cache[key];
       }
     }
 
-    const hostedApp = require('../server');
+    const hostedApp = require('../../server');
     hostedRequest = require('supertest')(hostedApp);
   });
 
@@ -1270,5 +1272,63 @@ describe('Edge cases', () => {
     assert.equal(res.body.length, 1);
 
     await request.delete(`/api/story/${story.id}`);
+  });
+});
+
+// ─── Emoji extension (emoji.js) ──────────────────────────────────────────────
+// The extension is client-side only; test it by loading marked.min.js and
+// emoji.js together in a vm context and asserting on marked.parse() output.
+
+describe('Emoji extension', () => {
+  let markedCtx;
+
+  before(() => {
+    const PUBLIC = path.join(__dirname, '..', '..', 'public');
+    const ctx = {};
+    vm.createContext(ctx);
+    vm.runInContext(fsSync.readFileSync(path.join(PUBLIC, 'marked.min.js'), 'utf8'), ctx);
+    vm.runInContext(fsSync.readFileSync(path.join(PUBLIC, 'emoji.js'), 'utf8'), ctx);
+    markedCtx = ctx;
+  });
+
+  function parse(md) {
+    return markedCtx.marked.parse(md).trim();
+  }
+
+  it('renders a known shortcode to its emoji character', () => {
+    assert.ok(parse(':smile:').includes('😄'));
+  });
+
+  it('renders multiple shortcodes in one paragraph', () => {
+    const out = parse('I :heart: coffee :coffee:');
+    assert.ok(out.includes('❤️'), 'heart');
+    assert.ok(out.includes('☕'), 'coffee');
+  });
+
+  it('leaves unknown shortcodes unchanged', () => {
+    const out = parse(':notanemoji:');
+    assert.ok(out.includes(':notanemoji:'));
+  });
+
+  it('does not expand shortcodes inside code spans', () => {
+    const out = parse('`code :smile: here`');
+    assert.ok(out.includes(':smile:'), 'shortcode should be literal inside code span');
+    assert.ok(!out.includes('😄'));
+  });
+
+  it('does not expand shortcodes inside fenced code blocks', () => {
+    const out = parse('```\n:tada:\n```');
+    assert.ok(out.includes(':tada:'), 'shortcode should be literal inside code block');
+    assert.ok(!out.includes('🎉'));
+  });
+
+  it('+1 and -1 shortcodes work (keys that start with a non-letter)', () => {
+    assert.ok(parse(':+1:').includes('👍'));
+    assert.ok(parse(':-1:').includes('👎'));
+  });
+
+  it('partial matches like ":smi" or "smile:" are not expanded', () => {
+    assert.ok(parse(':smi').includes(':smi'));
+    assert.ok(parse('smile:').includes('smile:'));
   });
 });

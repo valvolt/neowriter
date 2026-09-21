@@ -1,3 +1,4 @@
+if (process.env.NODE_TEST_CONTEXT) { /* run via: npm run test:browser */ } else {
 const { test, expect } = require('@playwright/test');
 
 test.beforeEach(async ({ request }) => {
@@ -124,3 +125,4 @@ test.skip('publish toggle changes button state (hosted mode only)', async ({ pag
 
   expect(after).not.toBe(before);
 });
+}

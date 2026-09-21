@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "npm run test:server && npm run test:browser",
-    "test:server": "node --test test/server.test.js",
+    "test:server": "node --test test/server/server.test.js",
     "test:browser": "playwright test"
   },
   "author": "",
