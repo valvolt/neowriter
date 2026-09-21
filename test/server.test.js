@@ -669,9 +669,9 @@ describe('Security', () => {
 
   it('picture upload sanitizes path-traversal in name field', async () => {
     // path.basename strips the leading '../' so the file lands in picturesDir as 'evil.png'
-    const gif1x1 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const png1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
     const res = await request.post(`/api/story/${storyId}/pictures`)
-      .send({ name: '../evil.png', data: gif1x1 })
+      .send({ name: '../evil.png', data: png1x1 })
       .expect(200);
     assert.ok(!res.body.filename.includes('/'), 'filename must not contain /');
     assert.ok(!res.body.filename.includes('..'), 'filename must not contain ..');
@@ -679,9 +679,9 @@ describe('Security', () => {
   });
 
   it('picture upload sanitizes deep path-traversal in name field', async () => {
-    const gif1x1 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const png1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
     const res = await request.post(`/api/story/${storyId}/pictures`)
-      .send({ name: '../../../../etc/passwd.png', data: gif1x1 })
+      .send({ name: '../../../../etc/passwd.png', data: png1x1 })
       .expect(200);
     assert.equal(res.body.filename, 'passwd.png');
   });
@@ -734,6 +734,33 @@ describe('Security', () => {
     const res = await request.post(`/api/story/${storyId}/pictures`)
       .send({ name: 'test.png', url: 'file:///etc/passwd' });
     assert.equal(res.status, 400);
+  });
+
+  // --- Image upload validation: extension allowlist + magic bytes ---
+
+  it('picture upload rejects disallowed extension', async () => {
+    const png1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'shell.php', data: png1x1 });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /not allowed/i);
+  });
+
+  it('picture upload rejects content that does not match extension', async () => {
+    // GIF data submitted with a .png extension
+    const gif1x1 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'image.png', data: gif1x1 });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /does not match/i);
+  });
+
+  it('picture upload accepts valid PNG with correct extension', async () => {
+    const png1x1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const res = await request.post(`/api/story/${storyId}/pictures`)
+      .send({ name: 'valid.png', data: png1x1 });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.filename, 'valid.png');
   });
 });
 
