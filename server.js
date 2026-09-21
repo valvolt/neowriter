@@ -137,25 +137,9 @@ app.get('/', async (req, res) => {
       }
     } catch (e) { /* ignore */ }
 
-    return res.type('html').send(`
-      <!doctype html>
-      <html><head><title>Neo Writer</title>
-      <style>body{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;background:#f7f7f8;}
-      .card{text-align:center;padding:40px;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:24px;}
-      h1{color:#2b7cff;margin-bottom:24px;}
-      a{display:inline-block;margin:8px;padding:12px 24px;background:#2b7cff;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;}
-      a:hover{opacity:0.9;} a.secondary{background:#f0f0f2;color:#333;}
-      .stories{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.04);padding:24px 32px;max-width:600px;width:100%;}
-      .stories h2{margin:0 0 16px;font-size:18px;color:#333;}
-      .stories ul{list-style:none;padding:0;margin:0;}
-      .stories li{padding:10px 0;border-bottom:1px solid #eee;display:flex;align-items:center;gap:12px;}
-      .stories li:last-child{border-bottom:none;}
-      .stories li a{display:inline;margin:0;padding:0;background:none;color:#2b7cff;font-weight:500;font-size:15px;text-decoration:none;}
-      .stories li a:hover{text-decoration:underline;}
-      .stories .author{font-size:13px;color:#888;}</style>
-      </head><body><div class="card"><h1>Neo Writer</h1><p>Please log in to continue.</p>
-      <a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a></div>${storiesHtml}</body></html>
-    `);
+    const loginPath = path.join(PUBLIC_DIR, 'login.html');
+    const loginHtml = (await fs.readFile(loginPath, 'utf8')).replace('<!--STORIES-->', storiesHtml);
+    return res.type('html').send(loginHtml);
   }
 
   const username = getUsername(req) || DEFAULT_USER;
