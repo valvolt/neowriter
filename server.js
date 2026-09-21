@@ -1133,6 +1133,9 @@ app.get('/api/story/:id/pictures/:filename', async (req, res) => {
     }
     // Serve the file
     res.set('X-Content-Type-Options', 'nosniff');
+    if (path.extname(filename).toLowerCase() === '.svg') {
+      res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+    }
     res.sendFile(filePath);
   } catch (err) {
     console.error(err);
@@ -1442,6 +1445,9 @@ app.get('/public/story/:username/:id/pictures/:filename', async (req, res) => {
     try {
       await fs.access(filePath);
       res.set('X-Content-Type-Options', 'nosniff');
+      if (path.extname(filename).toLowerCase() === '.svg') {
+        res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      }
       res.sendFile(filePath);
     } catch (e) {
       res.status(404).send('Not found');
