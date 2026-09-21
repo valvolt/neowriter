@@ -1005,7 +1005,7 @@
     document.querySelector('.menu-controls').style.display = 'none';
     if (globalTodoSection) globalTodoSection.style.display = 'none';
     binderEl.style.display = '';
-    binderStoryName.textContent = storyName;
+    applyHighlight(binderStoryName, storyName, filterQuery);
 
     // Show publish button when a story is open (only in hosted mode)
     if (togglePublishEl && !window.local_mode) {
@@ -1205,6 +1205,16 @@
     return match ? match.matchingHighlights : [];
   }
 
+  async function refreshFilterResults() {
+    if (!filterQuery) return;
+    try {
+      const results = await api(`/api/search?q=${encodeURIComponent(filterQuery)}`);
+      filterResults = Array.isArray(results) ? results : [];
+    } catch (e) {
+      console.error('filter refresh failed', e);
+    }
+  }
+
   async function applyFilter(q) {
     filterQuery = q.trim().toLowerCase();
     if (currentStoryId) {
@@ -1222,6 +1232,7 @@
       }
       loadTilesList();
       loadHighlightsList();
+      applyHighlight(binderStoryName, currentStoryName, filterQuery);
       // Refresh editor marks when filter changes while a tile/highlight is open
       if (editMode === 'tile' && currentTileFilename) {
         setEditorContent(getEditorText());
@@ -1406,6 +1417,7 @@
         // Update display name cache
         tileNamesCache[res.filename || tile.filename] = res.name || newName;
         updateBreadcrumb();
+        await refreshFilterResults();
         loadTilesList();
         openTile(res.filename || tile.filename);
       } catch (e) {
@@ -1483,11 +1495,7 @@
       if (res && res.filename) {
         tilesOrder.push(res.filename);
         tilesCache[res.filename] = '';
-        // If a filter is active, include the new tile so it shows immediately
-        if (filterQuery && filterResults) {
-          const match = filterResults.find(r => r.id === currentStoryId);
-          if (match) match.matchingTiles.push(res.filename);
-        }
+        await refreshFilterResults();
         loadTilesList();
         openTile(res.filename);
       }
@@ -1669,6 +1677,7 @@
         }
         // Re-fetch highlights (order may change due to alphabetical sort)
         await fetchHighlightsList();
+        await refreshFilterResults();
         loadHighlightsList();
         renderPreview();
         openHighlight(res.filename || hl.filename);
@@ -1753,11 +1762,7 @@
       });
       if (res && res.filename) {
         await fetchHighlightsList();
-        // If a filter is active, include the new highlight so it shows immediately
-        if (filterQuery && filterResults) {
-          const match = filterResults.find(r => r.id === currentStoryId);
-          if (match) match.matchingHighlights.push(res.filename);
-        }
+        await refreshFilterResults();
         loadHighlightsList();
         openHighlight(res.filename);
       }
