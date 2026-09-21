@@ -65,81 +65,6 @@ const storiesRouter = require('./routes/stories')({
 });
 app.use('/api', requireUser, storiesRouter);
 
-// ...[Most endpoints omitted for brevity: migrate others here as per pattern]...
-
-// --- Serve index.html dynamically (inject user info) [unchanged block] ---
-// NOTE: fsSync is used just for sync reads like index.html. All other FS access should use fs (promises version).
-app.get('/', async (req, res) => {
-  if (!LOCAL_MODE && (!req.oidc || !req.oidc.isAuthenticated())) {
-    // Show login page with published stories for unauthenticated users
-    // [...(remains unchanged for now)...]
-    let storiesHtml = '';
-    try {
-      let userDirs = [];
-      try { userDirs = await fs.promises.readdir(DATA_DIR); } catch (e) {}
-      const published = [];
-      for (const udir of userDirs) {
-        const upath = path.join(DATA_DIR, udir);
-        try {
-          const stat = await fs.promises.stat(upath);
-          if (!stat.isDirectory()) continue;
-          const mf = path.join(upath, 'metadata.json');
-          const raw = await fs.promises.readFile(mf, 'utf8');
-          const meta = JSON.parse(raw);
-          for (const item of meta) {
-            if (item.published) {
-              published.push({ id: item.id, name: item.name, author: item.author || udir, username: udir });
-            }
-          }
-        } catch (e) { /* skip */ }
-      }
-      if (published.length > 0) {
-        storiesHtml = '<div class="stories"><h2>Published Stories</h2><ul>' +
-          published.map(s => `<li><a href="/read/${s.username}/${s.id}">${s.name}</a><span class="author">by ${s.author}</span></li>`).join('') +
-          '</ul></div>';
-      }
-    } catch (e) { /* ignore */ }
-    return res.type('html').send(`
-      <!doctype html>
-      <html><head><title>Neo Writer</title>
-      <style>body{font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;background:#f7f7f8;}
-      .card{text-align:center;padding:40px;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:24px;}
-      h1{color:#2b7cff;margin-bottom:24px;}
-      a{display:inline-block;margin:8px;padding:12px 24px;background:#2b7cff;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;}
-      a:hover{opacity:0.9;} a.secondary{background:#f0f0f2;color:#333;}
-      .stories{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.04);padding:24px 32px;max-width:600px;width:100%;}
-      .stories h2{margin:0 0 16px;font-size:18px;color:#333;}
-      .stories ul{list-style:none;padding:0;margin:0;}
-      .stories li{padding:10px 0;border-bottom:1px solid #eee;display:flex;align-items:center;gap:12px;}
-      .stories li:last-child{border-bottom:none;}
-      .stories li a{display:inline;margin:0;padding:0;background:none;color:#2b7cff;font-weight:500;font-size:15px;text-decoration:none;}
-      .stories li a:hover{text-decoration:underline;}
-      .stories .author{font-size:13px;color:#888;}</style>
-      </head><body><div class="card"><h1>Neo Writer</h1><p>Please log in to continue.</p>
-      <a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a></div>${storiesHtml}</body></html>
-    `);
-  }
-  // Authenticated view
-  const username = getUsername(req) || DEFAULT_USER;
-  const displayName = getDisplayName(req) || DEFAULT_USER;
-  const localMode = LOCAL_MODE;
-  const indexPath = path.join(PUBLIC_DIR, 'index.html');
-  let html = fsSync.readFileSync(indexPath, 'utf8');
-  html = html.replace(
-    /<!-- expose local_mode and username to the client -->\s*<script>[\s\S]*?<\/script>/,
-    `<!-- expose local_mode and username to the client -->\n  <script>\n    window.local_mode = ${localMode};\n    window.username = ${JSON.stringify(displayName)};\n  </script>`
-  );
-  res.type('html').send(html);
-});
-
-// ...[other endpoints and static file serving omitted for brevity]...
-
-
-// Remove legacy ensureData function if it exists in this file!
-
-
-module.exports = app;
-
 // --- Per-user data helpers ---
 
 function userDir(username) {
@@ -261,22 +186,6 @@ app.get('/signup', (req, res) => {
   });
 });
 
-// Apply requireUser to all API routes
-app.use('/api', requireUser);
-
-// List stories
-app.get('/api/list', async (req, res) => {
-  try {
-    const username = getUsername(req);
-    await ensureUserData(username);
-    const meta = await readMeta(username);
-    res.json(meta);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to read metadata' });
-  }
-});
-
 // Search across story names, tile names/content, highlight names/content
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim().toLowerCase();
@@ -333,58 +242,6 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// Create story
-app.post('/api/create', async (req, res) => {
-  const name = (req.body && req.body.name) ? String(req.body.name) : 'Untitled';
-  try {
-    const username = getUsername(req);
-    await ensureUserData(username);
-    const id = uuidv4();
-    const meta = await readMeta(username);
-    const author = getDisplayName(req) || username;
-    meta.push({ id, name, author });
-    await writeMeta(username, meta);
-
-    const dir = storyDir(username, id);
-    const tilesDir = path.join(dir, 'tiles');
-    const highlightsDir = path.join(dir, 'highlights');
-    await fs.mkdir(tilesDir, { recursive: true });
-    await fs.mkdir(highlightsDir, { recursive: true });
-
-    // Create the first tile auto-named chapter-1
-    const tileFilename = 'chapter-1.md';
-    await fs.writeFile(path.join(tilesDir, tileFilename), '', 'utf8');
-
-    // Initialize tile order
-    await fs.writeFile(path.join(tilesDir, '_order.json'), JSON.stringify([tileFilename], null, 2), 'utf8');
-
-    res.json({ id, name, author, tile: { filename: tileFilename, name: 'chapter-1' } });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to create story' });
-  }
-});
-
-// Rename story
-app.post('/api/rename/:id', async (req, res) => {
-  const id = req.params.id;
-  const name = (req.body && req.body.name) ? String(req.body.name) : undefined;
-  if (!name) return res.status(400).json({ error: 'name required' });
-
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'not found' });
-    item.name = name;
-    await writeMeta(username, meta);
-    res.json({ id, name });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to rename' });
-  }
-});
-
 // Get story metadata
 app.get('/api/story/:id', async (req, res) => {
   const id = req.params.id;
@@ -397,30 +254,6 @@ app.get('/api/story/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed to read story' });
-  }
-});
-
-// Delete story (remove metadata entry and entire story folder)
-app.delete('/api/story/:id', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const idx = meta.findIndex(m => m.id === id);
-    if (idx === -1) return res.status(404).json({ error: 'not found' });
-    meta.splice(idx, 1);
-    await writeMeta(username, meta);
-
-    const dir = storyDir(username, id);
-    try {
-      await fs.rm(dir, { recursive: true, force: true });
-    } catch (e) {
-      // ignore removal errors
-    }
-    res.json({ ok: true, id });
-  } catch (err) {
-    console.error('failed to delete story', err);
-    res.status(500).json({ error: 'failed to delete' });
   }
 });
 

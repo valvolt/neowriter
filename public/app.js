@@ -1166,6 +1166,21 @@
   }
 
   // Insert `text` replacing the range [startOffset, endOffset] in the editor plain text.
+  // Insert `text` using a saved DOM Range (accurate) or character offsets (fallback).
+  // Pass range=null to use the text-level fallback (e.g. speech insertion).
+  function editorInsertWithRange(text, range) {
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    editor.dispatchEvent(new Event('input'));
+    editor.focus();
+  }
+
   function editorInsertAt(text, startOffset, endOffset) {
     const full = getEditorText();
     const newText = full.slice(0, startOffset) + text + full.slice(endOffset);
@@ -2042,12 +2057,19 @@
     contextMenu.style.display = 'none';
   }
 
+  let contextMenuRange = null;
+
   editor.addEventListener('contextmenu', (ev) => {
     if (editor.contentEditable !== 'true') return; // don't show if no file open
     ev.preventDefault();
-    // Enable/disable menu items based on selection
+    // Save the exact DOM Range now, before focus leaves the editor.
+    // Character-offset recalculation after innerText reassignment is unreliable
+    // because browsers restructure the DOM (creating <br>/<div> wrappers for \n).
     const sel = window.getSelection();
-    const hasSelection = sel && editor.contains(sel.anchorNode) && !sel.isCollapsed;
+    contextMenuRange = (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode))
+      ? sel.getRangeAt(0).cloneRange()
+      : null;
+    const hasSelection = contextMenuRange && !contextMenuRange.collapsed;
     contextMenu.querySelectorAll('li').forEach(li => {
       const action = li.dataset.action;
       if (action === 'insert-table' || action === 'insert-picture') {
@@ -2092,31 +2114,34 @@
   });
 
   function insertTable() {
+    if (!contextMenuRange) return;
     const table = '\n| Col 1 | Col 2 | Col 3 |\n|-------|-------|-------|\n|       |       |       |\n|       |       |       |\n';
-    const pos = getEditorCursorOffset();
-    editorInsertAt(table, pos, pos);
+    editorInsertWithRange(table, contextMenuRange);
+    contextMenuRange = null;
   }
 
   // --- Insert Keyword ---
 
   function insertKeyword() {
-    const sel = window.getSelection();
-    const hasSelection = sel && editor.contains(sel.anchorNode) && !sel.isCollapsed;
-
+    if (!contextMenuRange) return;
+    const range = contextMenuRange;
+    contextMenuRange = null;
+    const hasSelection = !range.collapsed;
     if (hasSelection) {
-      // Insert ‡ before the selected text
-      const selText = sel.toString();
-      const range = document.createRange();
-      range.setStart(editor, 0);
-      range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
-      const startOffset = range.toString().length;
-      editorInsertAt('‡' + selText, startOffset, startOffset + selText.length);
+      const selText = range.toString();
+      range.deleteContents();
+      const node = document.createTextNode('‡' + selText);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+      editor.dispatchEvent(new Event('input'));
+      editor.focus();
     } else {
-      // Ask for text, then insert ‡ + text at cursor
       const keyword = prompt('Keyword text:');
       if (!keyword) return;
-      const pos = getEditorCursorOffset();
-      editorInsertAt('‡' + keyword, pos, pos);
+      editorInsertWithRange('‡' + keyword, range);
     }
   }
 
@@ -2124,7 +2149,8 @@
 
   async function createHighlightFromSelection() {
     if (!currentStoryId) return;
-    const selectedText = window.getSelection().toString().trim();
+    const selectedText = contextMenuRange ? contextMenuRange.toString().trim() : '';
+    contextMenuRange = null;
     const name = selectedText || 'New Highlight';
 
     try {
@@ -2155,21 +2181,14 @@
   // --- Insert Link ---
 
   function insertLink() {
-    const sel = window.getSelection();
-    if (!sel || !editor.contains(sel.anchorNode) || sel.isCollapsed) return;
-    const selectedText = sel.toString();
-    const linkText = selectedText;
-    if (!linkText) return; // should not happen since menu item is disabled without selection
-    const linkUrl = prompt(`URL for "${linkText}":`, 'https://');
+    if (!contextMenuRange || contextMenuRange.collapsed) return;
+    const range = contextMenuRange;
+    contextMenuRange = null;
+    const selectedText = range.toString();
+    if (!selectedText) return;
+    const linkUrl = prompt(`URL for "${selectedText}":`, 'https://');
     if (!linkUrl) return;
-
-    const md = `[${linkText}](${linkUrl})`;
-    // Replace selection with the link
-    const range = document.createRange();
-    range.setStart(editor, 0);
-    range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
-    const start = range.toString().length;
-    editorInsertAt(md, start, start + selectedText.length);
+    editorInsertWithRange(`[${selectedText}](${linkUrl})`, range);
   }
 
   // --- Insert Picture (dialog-based) ---
@@ -2180,13 +2199,14 @@
   const picDialogFile = $('picture-dialog-file');
   const picDialogCancel = $('picture-dialog-cancel');
   const picDialogOk = $('picture-dialog-ok');
-  let pictureInsertPos = null;
+  let pictureInsertRange = null;
 
   function openPictureDialog() {
     picDialogName.value = '';
     picDialogUrl.value = '';
     picDialogFile.value = '';
-    pictureInsertPos = getEditorCursorOffset();
+    pictureInsertRange = contextMenuRange;
+    contextMenuRange = null;
     picDialogOverlay.style.display = '';
     picDialogName.focus();
   }
@@ -2322,9 +2342,13 @@
 
   function insertPictureMarkdown(altText, picPath) {
     const md = `\n![${altText}](${picPath})\n`;
-    const pos = pictureInsertPos != null ? pictureInsertPos : getEditorCursorOffset();
-    editorInsertAt(md, pos, pos);
-    pictureInsertPos = null;
+    if (pictureInsertRange) {
+      editorInsertWithRange(md, pictureInsertRange);
+      pictureInsertRange = null;
+    } else {
+      const pos = getEditorCursorOffset();
+      editorInsertAt(md, pos, pos);
+    }
   }
 
   // --- Speech to text ---
