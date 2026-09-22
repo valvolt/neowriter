@@ -496,11 +496,11 @@
 
   // --- Highlight words in preview ---
 
-  // Build a map from lowercase highlight name to filename for quick lookup
+  // Build a map from normalised highlight name to filename for quick lookup
   function getHighlightNameToFilenameMap() {
     const map = {};
     highlightsList.forEach(hl => {
-      if (hl.name) map[hl.name.toLowerCase()] = hl.filename;
+      if (hl.name) map[normalizeSearch(hl.name)] = hl.filename;
     });
     return map;
   }
@@ -514,10 +514,10 @@
 
     const nameToFilename = getHighlightNameToFilenameMap();
 
-    // Build a combined regex for all highlight names (case-insensitive)
-    // Use \b word boundaries so only full-word matches are highlighted
-    const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const combinedRegex = new RegExp(`\\b(${escaped.join('|')})\\b`, 'gi');
+    // Build regex from normalised names so accent-insensitive matching works
+    const normNames = names.map(n => normalizeSearch(n));
+    const escaped = normNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const combinedRegex = new RegExp(`\\b(${escaped.join('|')})\\b`, 'g');
 
     // Walk text nodes in the preview, skip code/pre/mark elements
     const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, null, false);
@@ -533,27 +533,29 @@
       if (parent.closest('code, pre, mark, .mermaid')) return;
 
       const text = textNode.nodeValue;
-      if (!combinedRegex.test(text)) return;
-      combinedRegex.lastIndex = 0; // reset regex state
+      const [normText, normMap] = buildNormMap(text);
+      if (!combinedRegex.test(normText)) return;
+      combinedRegex.lastIndex = 0;
 
       // Split text by matches and create fragment
       const frag = document.createDocumentFragment();
-      let lastIndex = 0;
+      let origPos = 0;
       let match;
       combinedRegex.lastIndex = 0;
-      while ((match = combinedRegex.exec(text)) !== null) {
-        // Add text before match
-        if (match.index > lastIndex) {
-          frag.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+      while ((match = combinedRegex.exec(normText)) !== null) {
+        const nStart = match.index;
+        const nEnd = nStart + match[0].length;
+        const origStart = normMap[nStart];
+        const origEnd = nEnd < normMap.length ? normMap[nEnd] : text.length;
+        if (origStart > origPos) {
+          frag.appendChild(document.createTextNode(text.substring(origPos, origStart)));
         }
-        // Add highlighted mark with data attribute for tooltip
         const mark = document.createElement('mark');
         mark.className = 'highlight-mark';
-        mark.textContent = match[0];
-        const filename = nameToFilename[match[0].toLowerCase()];
+        mark.textContent = text.slice(origStart, origEnd);
+        const filename = nameToFilename[match[0]];
         if (filename) {
           mark.dataset.highlightFilename = filename;
-          // Use keyword color if highlight has keywords
           const firstKw = getFirstKeywordForHighlight(filename);
           if (firstKw) {
             const kwStyle = keywordStyleFor(firstKw);
@@ -562,11 +564,10 @@
           }
         }
         frag.appendChild(mark);
-        lastIndex = combinedRegex.lastIndex;
+        origPos = origEnd;
       }
-      // Add remaining text
-      if (lastIndex < text.length) {
-        frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+      if (origPos < text.length) {
+        frag.appendChild(document.createTextNode(text.substring(origPos)));
       }
       parent.replaceChild(frag, textNode);
     });
