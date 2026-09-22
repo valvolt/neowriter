@@ -595,7 +595,7 @@ app.post('/api/story/:id/todo/toggle', async (req, res) => {
       lines[lineIndex] = lines[lineIndex].replace(/^(\s*-\s)\[x\]/i, '$1[ ]');
     }
 
-    await fs.writeFile(filePath, lines.join('\n'), 'utf8');
+    await atomicWrite(filePath, lines.join('\n'));
 
     res.json({ ok: true });
   } catch (err) {
@@ -735,7 +735,7 @@ app.post('/api/story/:id/tiles/:filename/save', async (req, res) => {
     } catch (e) {
       return res.status(404).json({ error: 'tile not found' });
     }
-    await fs.writeFile(filePath, req.body.content, 'utf8');
+    await atomicWrite(filePath, req.body.content);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -990,7 +990,7 @@ app.post('/api/story/:id/highlights/:filename/save', async (req, res) => {
     } catch (e) {
       return res.status(404).json({ error: 'highlight not found' });
     }
-    await fs.writeFile(filePath, req.body.content, 'utf8');
+    await atomicWrite(filePath, req.body.content);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -1075,7 +1075,7 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
           return newName.toLowerCase();
         });
         if (updated !== content) {
-          await fs.writeFile(tilePath, updated, 'utf8');
+          await atomicWrite(tilePath, updated);
         }
       } catch (e) {
         console.error(`failed to update tile ${tileFile}`, e);
