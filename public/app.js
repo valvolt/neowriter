@@ -1104,18 +1104,38 @@
 
   // --- Filter helpers ---
 
+  function normalizeSearch(s) {
+    return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  }
+
+  // Returns [normalizedStr, map] where map[i] is the original-string index for position i.
+  function buildNormMap(text) {
+    const map = [];
+    let normStr = '';
+    for (let i = 0; i < text.length; i++) {
+      const stripped = text[i].normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+      for (let k = 0; k < stripped.length; k++) {
+        map.push(i);
+        normStr += stripped[k];
+      }
+    }
+    return [normStr, map];
+  }
+
   // Renders text into el, wrapping the first occurrence of query in <mark>.
   function applyHighlight(el, text, query) {
     el.textContent = '';
     if (!query) { el.textContent = text; return; }
-    const lower = text.toLowerCase();
-    const idx = lower.indexOf(query.toLowerCase());
-    if (idx === -1) { el.textContent = text; return; }
-    el.appendChild(document.createTextNode(text.slice(0, idx)));
+    const [normText, map] = buildNormMap(text);
+    const nIdx = normText.indexOf(query);
+    if (nIdx === -1) { el.textContent = text; return; }
+    const origStart = map[nIdx];
+    const origEnd = nIdx + query.length < map.length ? map[nIdx + query.length] : text.length;
+    el.appendChild(document.createTextNode(text.slice(0, origStart)));
     const mark = document.createElement('mark');
-    mark.textContent = text.slice(idx, idx + query.length);
+    mark.textContent = text.slice(origStart, origEnd);
     el.appendChild(mark);
-    el.appendChild(document.createTextNode(text.slice(idx + query.length)));
+    el.appendChild(document.createTextNode(text.slice(origEnd)));
   }
 
   // --- Contenteditable editor helpers ---
@@ -1137,16 +1157,19 @@
       editor.innerHTML = text ? textToEditorDivs(text) : '<div><br></div>';
       return;
     }
-    const ql = filterQuery.toLowerCase();
-    const lower = text.toLowerCase();
+    const [normText, map] = buildNormMap(text);
     const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    let html = '', pos = 0, idx;
-    while ((idx = lower.indexOf(ql, pos)) !== -1) {
-      html += esc(text.slice(pos, idx)).replace(/\n/g, '<br>');
-      html += '<mark>' + esc(text.slice(idx, idx + ql.length)) + '</mark>';
-      pos = idx + ql.length;
+    let html = '', normPos = 0, origPos = 0, nIdx;
+    while ((nIdx = normText.indexOf(filterQuery, normPos)) !== -1) {
+      const origStart = map[nIdx];
+      const nEnd = nIdx + filterQuery.length;
+      const origEnd = nEnd < map.length ? map[nEnd] : text.length;
+      html += esc(text.slice(origPos, origStart)).replace(/\n/g, '<br>');
+      html += '<mark>' + esc(text.slice(origStart, origEnd)) + '</mark>';
+      origPos = origEnd;
+      normPos = nEnd;
     }
-    html += esc(text.slice(pos)).replace(/\n/g, '<br>');
+    html += esc(text.slice(origPos)).replace(/\n/g, '<br>');
     editor.innerHTML = html;
   }
 
@@ -1228,7 +1251,7 @@
   }
 
   async function applyFilter(q) {
-    filterQuery = q.trim().toLowerCase();
+    filterQuery = normalizeSearch(q.trim());
     if (currentStoryId) {
       // In binder view: fetch fresh results then re-render tile/highlight lists
       if (filterQuery) {

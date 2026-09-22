@@ -192,6 +192,10 @@ async function readMeta(username) {
   }
 }
 
+function normalizeSearch(s) {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
 async function atomicWrite(filePath, data) {
   const tmp = filePath + '.tmp';
   await fs.writeFile(tmp, data, 'utf8');
@@ -277,7 +281,7 @@ app.get('/signup', (req, res) => {
 
 // Search across story names, tile names/content, highlight names/content
 app.get('/api/search', async (req, res) => {
-  const q = (req.query.q || '').trim().toLowerCase();
+  const q = normalizeSearch((req.query.q || '').trim());
   if (!q) return res.json([]);
   try {
     const username = getUsername(req);
@@ -288,20 +292,20 @@ app.get('/api/search', async (req, res) => {
       const dir = storyDir(username, story.id);
       const tilesDir = path.join(dir, 'tiles');
       const highlightsDir = path.join(dir, 'highlights');
-      const nameMatches = story.name.toLowerCase().includes(q);
+      const nameMatches = normalizeSearch(story.name).includes(q);
       const matchingTiles = [];
       const matchingHighlights = [];
 
       try {
         const order = JSON.parse(await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8'));
         for (const filename of order) {
-          if (filename.replace(/\.md$/, '').toLowerCase().includes(q)) {
+          if (normalizeSearch(filename.replace(/\.md$/, '')).includes(q)) {
             matchingTiles.push(filename);
             continue;
           }
           try {
             const content = await fs.readFile(path.join(tilesDir, filename), 'utf8');
-            if (content.toLowerCase().includes(q)) matchingTiles.push(filename);
+            if (normalizeSearch(content).includes(q)) matchingTiles.push(filename);
           } catch (e) {}
         }
       } catch (e) {}
@@ -309,13 +313,13 @@ app.get('/api/search', async (req, res) => {
       try {
         const files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
         for (const filename of files) {
-          if (filename.replace(/\.md$/, '').toLowerCase().includes(q)) {
+          if (normalizeSearch(filename.replace(/\.md$/, '')).includes(q)) {
             matchingHighlights.push(filename);
             continue;
           }
           try {
             const content = await fs.readFile(path.join(highlightsDir, filename), 'utf8');
-            if (content.toLowerCase().includes(q)) matchingHighlights.push(filename);
+            if (normalizeSearch(content).includes(q)) matchingHighlights.push(filename);
           } catch (e) {}
         }
       } catch (e) {}
