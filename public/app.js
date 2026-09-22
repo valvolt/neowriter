@@ -1353,8 +1353,13 @@
         const results = await api(`/api/search?q=${encodeURIComponent(filterQuery)}`);
         filterResults = Array.isArray(results) ? results : [];
         const matchIds = new Set(filterResults.map(r => r.id));
-        items.filter(item => matchIds.has(item.id))
-             .forEach(item => storyListEl.appendChild(buildStoryItem(item)));
+        items.forEach(item => {
+          const li = buildStoryItem(item);
+          const contentMatch = matchIds.has(item.id);
+          const nameMatch = normalizeSearch(item.name || '').includes(filterQuery);
+          if (!contentMatch && !nameMatch) li.classList.add('dimmed');
+          storyListEl.appendChild(li);
+        });
       } else {
         filterResults = null;
         items.forEach(item => {
@@ -1394,20 +1399,23 @@
   function loadTilesList() {
     binderTilesList.innerHTML = '';
     if (!currentStoryId) return;
-    const matchingTiles = getMatchingTiles(); // null = show all, [] = show none
-    const visible = tilesOrder.filter(filename =>
-      matchingTiles === null || matchingTiles.includes(filename)
-    );
-    if (visible.length === 0 && matchingTiles !== null) {
+    const matchingTiles = getMatchingTiles(); // null = no filter
+    if (tilesOrder.length === 0) {
       const placeholder = document.createElement('li');
       placeholder.className = 'binder-placeholder';
-      placeholder.textContent = 'No matching tiles';
+      placeholder.textContent = 'No tiles yet';
       binderTilesList.appendChild(placeholder);
       return;
     }
-    visible.forEach(filename => {
+    tilesOrder.forEach(filename => {
       const tile = { filename, name: tileNamesCache[filename] || filename.replace(/\.md$/, '') };
-      binderTilesList.appendChild(buildTileItem(tile));
+      const li = buildTileItem(tile);
+      if (matchingTiles !== null) {
+        const contentMatch = matchingTiles.includes(filename);
+        const nameMatch = normalizeSearch(tile.name).includes(filterQuery);
+        if (!contentMatch && !nameMatch) li.classList.add('dimmed');
+      }
+      binderTilesList.appendChild(li);
     });
   }
 
@@ -1655,18 +1663,24 @@
   function loadHighlightsList() {
     binderHighlightsList.innerHTML = '';
     if (!currentStoryId) return;
-    const matchingHighlights = getMatchingHighlights(); // null = show all, [] = show none
-    const sorted = getSortedHighlights().filter(hl =>
-      matchingHighlights === null || matchingHighlights.includes(hl.filename)
-    );
+    const matchingHighlights = getMatchingHighlights(); // null = no filter
+    const sorted = getSortedHighlights();
     if (sorted.length === 0) {
       const placeholder = document.createElement('li');
       placeholder.className = 'binder-placeholder';
-      placeholder.textContent = matchingHighlights !== null ? 'No matching highlights' : 'No highlights yet';
+      placeholder.textContent = 'No highlights yet';
       binderHighlightsList.appendChild(placeholder);
       return;
     }
-    sorted.forEach(hl => binderHighlightsList.appendChild(buildHighlightItem(hl)));
+    sorted.forEach(hl => {
+      const li = buildHighlightItem(hl);
+      if (matchingHighlights !== null) {
+        const contentMatch = matchingHighlights.includes(hl.filename);
+        const nameMatch = normalizeSearch(hl.name || '').includes(filterQuery);
+        if (!contentMatch && !nameMatch) li.classList.add('dimmed');
+      }
+      binderHighlightsList.appendChild(li);
+    });
   }
 
   function buildHighlightItem(hl) {

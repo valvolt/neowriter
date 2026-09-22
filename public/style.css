@@ -449,6 +449,8 @@ mark {
   padding: 0;
   color: inherit;
 }
+/* Dimmed items — matched neither by name nor content under active filter */
+.dimmed { opacity: 0.35; }
 /* Highlight marks in preview */
 .highlight-mark{
   background:#fff176;
