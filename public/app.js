@@ -1025,8 +1025,12 @@
     loadTilesList();
     loadHighlightsList();
     refreshTodoBadge();
-    if (tilesOrder.length > 0) {
-      openTile(tilesOrder[0]);
+    const matchingTiles = getMatchingTiles();
+    const tileToOpen = matchingTiles !== null
+      ? (matchingTiles.length > 0 ? matchingTiles[0] : null)
+      : tilesOrder[0];
+    if (tileToOpen) {
+      openTile(tileToOpen);
     } else {
       renderPreview();
     }
