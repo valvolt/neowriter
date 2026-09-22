@@ -24,11 +24,11 @@ test('new story has one tile auto-created', async ({ page }) => {
 test('editor is disabled until a tile is opened', async ({ page }) => {
   await page.goto('/');
   // Before any story: editor is not editable
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('#editor')).toHaveAttribute('disabled', '');
 
   await openNewStory(page);
   // After creating a story the first tile is auto-opened, so editor is now editable
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
 });
 
 test('clicking a tile activates the editor', async ({ page }) => {
@@ -39,17 +39,17 @@ test('clicking a tile activates the editor', async ({ page }) => {
   // Navigate away and back to force a manual tile click
   await page.click('#btn-back');
   await page.locator('#story-list .story-name').click();
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('#editor')).toHaveAttribute('disabled', '');
 
   await page.locator('#binder-tiles-list li').first().click();
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
 });
 
 test('typing markdown updates the preview', async ({ page }) => {
   await page.goto('/');
   await openNewStory(page);
   // First tile auto-opens; editor is editable
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
 
   await page.fill('#editor', '# Hello World\n\nSome paragraph text.');
   // Dispatch input so the app's event handler fires
@@ -62,7 +62,7 @@ test('typing markdown updates the preview', async ({ page }) => {
 test('stats show word and char counts', async ({ page }) => {
   await page.goto('/');
   await openNewStory(page);
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
 
   await page.fill('#editor', 'hello world');
   await page.dispatchEvent('#editor', 'input');
@@ -89,14 +89,14 @@ test('second tile opens in the editor', async ({ page }) => {
   await page.click('#btn-add-tile');
 
   // New tile should be active in the editor
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
   await expect(page.locator('#binder-tiles-list .active')).toHaveCount(1);
 });
 
 test('editor content is saved and reloaded', async ({ page }) => {
   await page.goto('/');
   await openNewStory(page, 'Save Test');
-  await expect(page.locator('#editor')).toHaveAttribute('contenteditable', 'true');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
 
   await page.fill('#editor', 'Persistent content');
   await page.dispatchEvent('#editor', 'input');

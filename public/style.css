@@ -265,20 +265,19 @@ main{
   overflow:auto;
   min-height:300px;
   background:transparent;
-  white-space:pre-wrap;
   word-wrap:break-word;
   overflow-wrap:break-word;
   cursor:text;
+  resize:none;
+  width:100%;
+  box-sizing:border-box;
 }
-#editor[contenteditable="false"]{
+#editor:disabled{
   cursor:default;
   color:#aaa;
 }
-#editor:empty::before{
-  content:attr(data-placeholder);
+#editor::placeholder{
   color:#aaa;
-  pointer-events:none;
-  display:block;
 }
 /* Preview area */
 #preview{
@@ -424,6 +423,13 @@ mark {
   background:#fff176;
   padding:0 2px;
   border-radius:2px;
+}
+/* Filter match marks in preview — takes precedence over highlight-mark */
+.filter-mark{
+  background:#f0c000 !important;
+  padding:0 2px;
+  border-radius:2px;
+  color:inherit;
 }
 
 /* Keyword pills in preview */
