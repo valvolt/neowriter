@@ -81,6 +81,9 @@
   let currentTileFilename = null;
   let currentHighlightFilename = null;
 
+  let saveTimer = null;
+  let saveInFlight = false;
+
   // Full-story rendering state
   let tilesOrder = [];
   let tilesCache = {};
@@ -1945,26 +1948,26 @@
 
   async function saveCurrent() {
     if (!currentStoryId) return;
-    if (editMode === 'tile' && currentTileFilename) {
-      try {
+    if (saveInFlight) return;
+    saveInFlight = true;
+    try {
+      if (editMode === 'tile' && currentTileFilename) {
         await fetch(`/api/story/${currentStoryId}/tiles/${currentTileFilename}/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
           body: JSON.stringify({ content: getEditorText() })
         });
-      } catch (e) {
-        console.error('autosave failed', e);
-      }
-    } else if (editMode === 'highlight' && currentHighlightFilename) {
-      try {
+      } else if (editMode === 'highlight' && currentHighlightFilename) {
         await fetch(`/api/story/${currentStoryId}/highlights/${currentHighlightFilename}/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
           body: JSON.stringify({ content: getEditorText() })
         });
-      } catch (e) {
-        console.error('autosave failed', e);
       }
+    } catch (e) {
+      console.error('autosave failed', e);
+    } finally {
+      saveInFlight = false;
     }
   }
 
@@ -1989,7 +1992,8 @@
     }
 
     renderPreview();
-    saveCurrent();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveCurrent, 400);
   });
 
   editor.addEventListener('scroll', () => {
