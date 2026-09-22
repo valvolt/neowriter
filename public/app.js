@@ -996,6 +996,7 @@
     if (togglePublishEl) togglePublishEl.style.display = 'none';
     storyPublished = false;
     refreshGlobalTodoBadge();
+    updateEditorRuler();
   }
 
   async function showBinder(storyId, storyName) {
@@ -1149,6 +1150,72 @@
     });
   }
 
+  // --- Editor overview ruler ---
+
+  const editorRuler = document.getElementById('editor-ruler');
+
+  function updateEditorRuler() {
+    if (!editorRuler) return;
+    editorRuler.querySelectorAll('.ruler-mark').forEach(m => m.remove());
+    if (filterQuery) {
+      const text = getEditorText();
+      if (text) {
+        const lines = text.split('\n');
+        const total = lines.length;
+        const escaped = filterQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escaped, 'i');
+        lines.forEach((line, i) => {
+          if (!regex.test(normalizeSearch(line))) return;
+          const mark = document.createElement('div');
+          mark.className = 'ruler-mark';
+          mark.style.top = `${((i + 0.5) / total) * 100}%`;
+          mark.dataset.line = i;
+          const vp = editorRuler.querySelector('.ruler-viewport');
+          editorRuler.insertBefore(mark, vp || null);
+        });
+      }
+    }
+    updateRulerViewport();
+  }
+
+  function updateRulerViewport() {
+    if (!editorRuler) return;
+    let vp = editorRuler.querySelector('.ruler-viewport');
+    if (!vp) {
+      vp = document.createElement('div');
+      vp.className = 'ruler-viewport';
+      editorRuler.appendChild(vp);
+    }
+    const sh = editor.scrollHeight;
+    const ch = editor.clientHeight;
+    if (sh <= ch) { vp.style.display = 'none'; return; }
+    vp.style.display = '';
+    vp.style.top = `${(editor.scrollTop / sh) * 100}%`;
+    vp.style.height = `${(ch / sh) * 100}%`;
+  }
+
+  if (editorRuler) {
+    editorRuler.addEventListener('click', (ev) => {
+      const mark = ev.target.closest('.ruler-mark');
+      if (mark && mark.dataset.line !== undefined) {
+        const lineIndex = parseInt(mark.dataset.line, 10);
+        const text = getEditorText();
+        const lines = text.split('\n');
+        let charPos = 0;
+        for (let i = 0; i < lineIndex && i < lines.length; i++) {
+          charPos += lines[i].length + 1;
+        }
+        editor.focus();
+        editor.setSelectionRange(charPos, charPos);
+      } else {
+        const rect = editorRuler.getBoundingClientRect();
+        const fraction = (ev.clientY - rect.top) / rect.height;
+        editor.scrollTop = fraction * editor.scrollHeight;
+        editor.focus();
+      }
+    });
+  }
+
   // --- Filter helpers ---
 
   function normalizeSearch(s) {
@@ -1265,6 +1332,7 @@
       loadHighlightsList();
       applyHighlight(binderStoryName, currentStoryName, filterQuery);
       renderPreview();
+      updateEditorRuler();
     } else {
       // In story list view: loadList handles the search internally
       await loadList();
@@ -1504,6 +1572,7 @@
     }
     updateStats(getEditorText());
     updateBreadcrumb();
+    updateEditorRuler();
     loadTilesList();
     loadHighlightsList();
     renderPreview();
@@ -1771,6 +1840,7 @@
       loadTilesList();
       loadHighlightsList();
       renderPreview();
+      updateEditorRuler();
       try { editor.focus(); } catch (e) {}
     } catch (e) {
       console.error('load highlight failed', e);
@@ -1814,6 +1884,7 @@
     loadTilesList();
     loadHighlightsList();
     if (binderTodoEntry) binderTodoEntry.classList.add('active');
+    updateEditorRuler();
     await renderTodo();
   }
 
@@ -2008,9 +2079,11 @@
     renderPreview();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveCurrent, 400);
+    updateEditorRuler();
   });
 
   editor.addEventListener('scroll', () => {
+    updateRulerViewport();
   });
 
   editor.addEventListener('dblclick', () => {

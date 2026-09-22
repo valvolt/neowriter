@@ -247,12 +247,13 @@ main{
   flex:1;
   min-width:100px;
   display:flex;
-  flex-direction:column;
   border:1px solid #e6e6e9;
   background:#fff;
   border-radius:6px;
   overflow:hidden;
 }
+#editor-pane{ flex-direction:row; }
+#render-pane{ flex-direction:column; }
 
 #editor{
   flex:1;
@@ -278,6 +279,36 @@ main{
 }
 #editor::placeholder{
   color:#aaa;
+}
+#editor-ruler{
+  width:10px;
+  flex-shrink:0;
+  position:relative;
+  overflow:hidden;
+  background:#e8e8ed;
+  border-left:1px solid #d8d8dc;
+  cursor:pointer;
+}
+.ruler-mark{
+  position:absolute;
+  left:1px;
+  right:1px;
+  height:5px;
+  background:#e6a800;
+  border-radius:2px;
+  transform:translateY(-50%);
+  cursor:pointer;
+  transition:background 0.1s;
+}
+.ruler-mark:hover{
+  background:#c48800;
+}
+.ruler-viewport{
+  position:absolute;
+  left:0;
+  right:0;
+  background:rgba(0,0,0,0.08);
+  pointer-events:none;
 }
 /* Preview area */
 #preview{
