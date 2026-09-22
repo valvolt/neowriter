@@ -2051,6 +2051,9 @@
   if (filterInputEl) {
     let filterDebounce = null;
     filterInputEl.addEventListener('input', () => {
+      const hasValue = filterInputEl.value.trim().length > 0;
+      filterInputEl.style.background = hasValue ? '#f0c000' : '';
+      filterInputEl.style.color = hasValue ? '#000' : '';
       clearTimeout(filterDebounce);
       filterDebounce = setTimeout(() => applyFilter(filterInputEl.value), 300);
     });
