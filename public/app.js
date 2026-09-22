@@ -1022,7 +1022,11 @@
     loadTilesList();
     loadHighlightsList();
     refreshTodoBadge();
-    renderPreview();
+    if (tilesOrder.length > 0) {
+      openTile(tilesOrder[0]);
+    } else {
+      renderPreview();
+    }
   }
 
   // --- Story list ---
