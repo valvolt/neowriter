@@ -288,8 +288,14 @@ main{
   height:100%;
 }
 #preview h1,#preview h2,#preview h3{margin:8px 0}
-#preview pre{background:#0b1220;color:#e6eef8;padding:10px;border-radius:6px;overflow:auto}
-#preview code{padding:2px 4px;border-radius:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:13px}
+#preview pre{background:#f6f8fa;color:inherit;padding:16px;border-radius:6px;overflow:auto;font-size:85%;line-height:1.45}
+#preview pre code{background:transparent;padding:0;font-size:inherit;border-radius:0}
+#preview code{padding:.2em .4em;background-color:rgba(175,184,193,0.2);border-radius:6px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:85%}
+#preview blockquote{padding:0 1em;color:#636c76;border-left:.25em solid #d0d7de;margin:0 0 16px 0}
+#preview table{border-collapse:collapse;width:100%}
+#preview th,#preview td{padding:6px 13px;border:1px solid #d0d7de}
+#preview th{background-color:#f6f8fa;font-weight:600}
+#preview tr:nth-child(2n){background-color:#f6f8fa}
 #preview img{max-width:100%;height:auto}
 /* Task list items: hide bullet markers, show only checkbox */
 #preview ul li input[type="checkbox"]{margin-right:6px;}
