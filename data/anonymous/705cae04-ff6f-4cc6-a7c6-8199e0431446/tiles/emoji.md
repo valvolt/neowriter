@@ -330,3 +330,78 @@ Type `:shortcode:` in any tile or highlight to insert an emoji.
 | `:hourglass:` | ⌛ | `:hourglass_flowing_sand:` | ⏳ | `:clock1:` | 🕐 |
 | `:clock2:` | 🕑 | `:clock3:` | 🕒 | `:chart:` | 💹 |
 | `:signal_strength:` | 📶 | `:eight_pointed_black_star:` | ✴️ | `:fleur_de_lis:` | ⚜️ |
+
+---
+
+## Country flags
+
+Use `:flag_xx:` where `xx` is the ISO 3166-1 alpha-2 country code (lowercase).
+
+### Americas
+
+| Shortcode | Flag | Shortcode | Flag | Shortcode | Flag |
+|---|---|---|---|---|---|
+| `:flag_us:` | 🇺🇸 | `:flag_ca:` | 🇨🇦 | `:flag_mx:` | 🇲🇽 |
+| `:flag_br:` | 🇧🇷 | `:flag_ar:` | 🇦🇷 | `:flag_cl:` | 🇨🇱 |
+| `:flag_co:` | 🇨🇴 | `:flag_pe:` | 🇵🇪 | `:flag_ve:` | 🇻🇪 |
+| `:flag_cu:` | 🇨🇺 | `:flag_uy:` | 🇺🇾 | `:flag_py:` | 🇵🇾 |
+| `:flag_bo:` | 🇧🇴 | `:flag_ec:` | 🇪🇨 | `:flag_cr:` | 🇨🇷 |
+| `:flag_pa:` | 🇵🇦 | `:flag_gt:` | 🇬🇹 | `:flag_hn:` | 🇭🇳 |
+| `:flag_ni:` | 🇳🇮 | `:flag_sv:` | 🇸🇻 | `:flag_do:` | 🇩🇴 |
+| `:flag_ht:` | 🇭🇹 | `:flag_jm:` | 🇯🇲 | `:flag_tt:` | 🇹🇹 |
+
+### Europe
+
+| Shortcode | Flag | Shortcode | Flag | Shortcode | Flag |
+|---|---|---|---|---|---|
+| `:flag_gb:` | 🇬🇧 | `:flag_fr:` | 🇫🇷 | `:flag_de:` | 🇩🇪 |
+| `:flag_it:` | 🇮🇹 | `:flag_es:` | 🇪🇸 | `:flag_pt:` | 🇵🇹 |
+| `:flag_nl:` | 🇳🇱 | `:flag_be:` | 🇧🇪 | `:flag_ch:` | 🇨🇭 |
+| `:flag_at:` | 🇦🇹 | `:flag_se:` | 🇸🇪 | `:flag_no:` | 🇳🇴 |
+| `:flag_dk:` | 🇩🇰 | `:flag_fi:` | 🇫🇮 | `:flag_pl:` | 🇵🇱 |
+| `:flag_cz:` | 🇨🇿 | `:flag_ru:` | 🇷🇺 | `:flag_ua:` | 🇺🇦 |
+| `:flag_gr:` | 🇬🇷 | `:flag_tr:` | 🇹🇷 | `:flag_ie:` | 🇮🇪 |
+| `:flag_hu:` | 🇭🇺 | `:flag_ro:` | 🇷🇴 | `:flag_sk:` | 🇸🇰 |
+| `:flag_hr:` | 🇭🇷 | `:flag_rs:` | 🇷🇸 | `:flag_bg:` | 🇧🇬 |
+| `:flag_si:` | 🇸🇮 | `:flag_ee:` | 🇪🇪 | `:flag_lv:` | 🇱🇻 |
+| `:flag_lt:` | 🇱🇹 | `:flag_lu:` | 🇱🇺 | `:flag_is:` | 🇮🇸 |
+| `:flag_by:` | 🇧🇾 | `:flag_md:` | 🇲🇩 | `:flag_al:` | 🇦🇱 |
+| `:flag_mk:` | 🇲🇰 | `:flag_ba:` | 🇧🇦 | `:flag_me:` | 🇲🇪 |
+| `:flag_cy:` | 🇨🇾 | `:flag_mt:` | 🇲🇹 | `:flag_eu:` | 🇪🇺 |
+
+### Asia & Pacific
+
+| Shortcode | Flag | Shortcode | Flag | Shortcode | Flag |
+|---|---|---|---|---|---|
+| `:flag_cn:` | 🇨🇳 | `:flag_jp:` | 🇯🇵 | `:flag_kr:` | 🇰🇷 |
+| `:flag_in:` | 🇮🇳 | `:flag_id:` | 🇮🇩 | `:flag_th:` | 🇹🇭 |
+| `:flag_vn:` | 🇻🇳 | `:flag_ph:` | 🇵🇭 | `:flag_sg:` | 🇸🇬 |
+| `:flag_my:` | 🇲🇾 | `:flag_pk:` | 🇵🇰 | `:flag_bd:` | 🇧🇩 |
+| `:flag_tw:` | 🇹🇼 | `:flag_hk:` | 🇭🇰 | `:flag_au:` | 🇦🇺 |
+| `:flag_nz:` | 🇳🇿 | `:flag_np:` | 🇳🇵 | `:flag_lk:` | 🇱🇰 |
+| `:flag_kh:` | 🇰🇭 | `:flag_mm:` | 🇲🇲 | `:flag_kz:` | 🇰🇿 |
+| `:flag_uz:` | 🇺🇿 | `:flag_mn:` | 🇲🇳 | `:flag_la:` | 🇱🇦 |
+| `:flag_af:` | 🇦🇫 | `:flag_kp:` | 🇰🇵 | `:flag_pg:` | 🇵🇬 |
+| `:flag_fj:` | 🇫🇯 | | | | |
+
+### Middle East
+
+| Shortcode | Flag | Shortcode | Flag | Shortcode | Flag |
+|---|---|---|---|---|---|
+| `:flag_sa:` | 🇸🇦 | `:flag_ae:` | 🇦🇪 | `:flag_il:` | 🇮🇱 |
+| `:flag_ir:` | 🇮🇷 | `:flag_iq:` | 🇮🇶 | `:flag_eg:` | 🇪🇬 |
+| `:flag_jo:` | 🇯🇴 | `:flag_lb:` | 🇱🇧 | `:flag_ps:` | 🇵🇸 |
+| `:flag_sy:` | 🇸🇾 | `:flag_ye:` | 🇾🇪 | `:flag_kw:` | 🇰🇼 |
+| `:flag_qa:` | 🇶🇦 | `:flag_bh:` | 🇧🇭 | `:flag_om:` | 🇴🇲 |
+
+### Africa
+
+| Shortcode | Flag | Shortcode | Flag | Shortcode | Flag |
+|---|---|---|---|---|---|
+| `:flag_za:` | 🇿🇦 | `:flag_ng:` | 🇳🇬 | `:flag_ke:` | 🇰🇪 |
+| `:flag_et:` | 🇪🇹 | `:flag_gh:` | 🇬🇭 | `:flag_ma:` | 🇲🇦 |
+| `:flag_tn:` | 🇹🇳 | `:flag_dz:` | 🇩🇿 | `:flag_tz:` | 🇹🇿 |
+| `:flag_ug:` | 🇺🇬 | `:flag_cm:` | 🇨🇲 | `:flag_sn:` | 🇸🇳 |
+| `:flag_ao:` | 🇦🇴 | `:flag_mz:` | 🇲🇿 | `:flag_ci:` | 🇨🇮 |
+| `:flag_mg:` | 🇲🇬 | `:flag_zm:` | 🇿🇲 | `:flag_zw:` | 🇿🇼 |
+| `:flag_ly:` | 🇱🇾 | `:flag_sd:` | 🇸🇩 | `:flag_un:` | 🇺🇳 |
