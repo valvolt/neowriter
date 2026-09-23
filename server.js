@@ -279,7 +279,7 @@ async function buildPublishedStoriesHtml() {
       const tagPills = s.tags.length > 0
         ? `<span class="story-tags">${s.tags.map(t => `<span class="story-tag">${escHtml(t)}</span>`).join('')}</span>`
         : '';
-      return `<li><a href="/read/${escHtml(s.username)}/${escHtml(s.id)}">${escHtml(s.name)}</a>${tagPills}` +
+      return `<li><a href="/read/${escHtml(s.id)}">${escHtml(s.name)}</a>${tagPills}` +
         `<span class="author">by ${escHtml(s.author)}</span></li>`;
     }).join('') +
     '</ul></div>';
@@ -1523,98 +1523,83 @@ app.get('/public/stories', async (req, res) => {
   }
 });
 
-// Read a published story (full content, all tiles concatenated)
-app.get('/public/story/:username/:id', async (req, res) => {
-  const { username, id } = req.params;
-  try {
-    const safeUsername = path.basename(username);
-    const safeId = path.basename(id);
-    const mf = path.join(DATA_DIR, safeUsername, 'metadata.json');
-    const raw = await fs.readFile(mf, 'utf8');
-    const meta = JSON.parse(raw);
-    const item = meta.find(m => m.id === safeId);
-    if (!item || !item.published) return res.status(404).json({ error: 'not found or not published' });
-
-    // Read tiles in order
-    const tilesDir = path.join(DATA_DIR, safeUsername, safeId, 'tiles');
-    let order = [];
+// Find a published story by UUID alone (scans all user dirs)
+async function findPublishedStory(storyId) {
+  const safeId = path.basename(storyId);
+  let userDirs = [];
+  try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
+  for (const udir of userDirs) {
+    if (udir.startsWith('_')) continue;
     try {
-      const orderRaw = await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8');
-      order = JSON.parse(orderRaw);
-    } catch (e) {
-      // fallback: read directory
-      try {
-        const files = await fs.readdir(tilesDir);
-        order = files.filter(f => f.endsWith('.md')).sort();
-      } catch (e2) {
-        order = [];
-      }
-    }
+      const mf = path.join(DATA_DIR, udir, 'metadata.json');
+      const meta = JSON.parse(await fs.readFile(mf, 'utf8'));
+      const item = meta.find(m => m.id === safeId);
+      if (item && item.published) return { username: udir, item };
+    } catch (e) { /* skip */ }
+  }
+  return null;
+}
 
+// Read a published story by UUID (no username in URL)
+app.get('/public/story/:id', async (req, res) => {
+  const found = await findPublishedStory(req.params.id).catch(() => null);
+  if (!found) return res.status(404).json({ error: 'not found or not published' });
+  const { username, item } = found;
+  const safeId = path.basename(req.params.id);
+  try {
+    const tilesDir = path.join(DATA_DIR, username, safeId, 'tiles');
+    let order = [];
+    try { order = JSON.parse(await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8')); }
+    catch (e) {
+      try { order = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md')).sort(); } catch (e2) {}
+    }
     let content = '';
     for (const filename of order) {
-      try {
-        const tile = await fs.readFile(safeJoin(tilesDir, filename), 'utf8');
-        content += (content ? '\n\n' : '') + tile;
-      } catch (e) {
-        // skip unreadable tiles
-      }
+      try { content += (content ? '\n\n' : '') + await fs.readFile(safeJoin(tilesDir, filename), 'utf8'); } catch (e) {}
     }
-
-    res.json({ id, name: item.name, author: (await readPseudonyms())[safeUsername] || item.author || safeUsername, content: stripTags(content), keywords: extractTags(content) });
+    res.json({ id: safeId, name: item.name, author: (await readPseudonyms())[username] || item.author || username, content: stripTags(content), keywords: extractTags(content) });
   } catch (err) {
-    if (err.code === 'ENOENT') return res.status(404).json({ error: 'not found or not published' });
     console.error(err);
     res.status(500).json({ error: 'failed to read published story' });
   }
 });
 
-// Serve pictures from published stories
-app.get('/public/story/:username/:id/pictures/:filename', async (req, res) => {
-  const { username, id, filename } = req.params;
+// Serve pictures from published stories (UUID-only URL)
+app.get('/public/story/:id/pictures/:filename', async (req, res) => {
+  const found = await findPublishedStory(req.params.id).catch(() => null);
+  if (!found) return res.status(404).send('Not found');
+  const { username } = found;
+  const safeId = path.basename(req.params.id);
+  const picturesDir = path.join(DATA_DIR, username, safeId, 'pictures');
+  const filePath = safeJoin(picturesDir, req.params.filename);
   try {
-    // Verify story is published
-    const safeUsername = path.basename(username);
-    const safeId = path.basename(id);
-    const mf = path.join(DATA_DIR, safeUsername, 'metadata.json');
-    const raw = await fs.readFile(mf, 'utf8');
-    const meta = JSON.parse(raw);
-    const item = meta.find(m => m.id === safeId);
-    if (!item || !item.published) return res.status(404).send('Not found');
-
-    const picturesDir = path.join(DATA_DIR, safeUsername, safeId, 'pictures');
-    const filePath = safeJoin(picturesDir, filename);
-    try {
-      await fs.access(filePath);
-      res.set('X-Content-Type-Options', 'nosniff');
-      if (path.extname(filename).toLowerCase() === '.svg') {
-        res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
-      }
-      res.sendFile(filePath);
-    } catch (e) {
-      res.status(404).send('Not found');
+    await fs.access(filePath);
+    res.set('X-Content-Type-Options', 'nosniff');
+    if (path.extname(req.params.filename).toLowerCase() === '.svg') {
+      res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
     }
-  } catch (err) {
+    res.sendFile(filePath);
+  } catch (e) {
     res.status(404).send('Not found');
   }
 });
 
-// Serve the reader page for published stories
-app.get('/read/:username/:id', async (req, res) => {
-  const { username, id } = req.params;
-  try {
-    // Verify story is published
-    const mf = path.join(DATA_DIR, path.basename(username), 'metadata.json');
-    const raw = await fs.readFile(mf, 'utf8');
-    const meta = JSON.parse(raw);
-    const item = meta.find(m => m.id === path.basename(id));
-    if (!item || !item.published) return res.status(404).send('Story not found');
+// Serve the reader page (UUID-only URL)
+app.get('/read/:id', async (req, res) => {
+  const found = await findPublishedStory(req.params.id).catch(() => null);
+  if (!found) return res.status(404).send('Story not found');
+  res.sendFile(path.join(PUBLIC_DIR, 'reader.html'));
+});
 
-    const readerPath = path.join(PUBLIC_DIR, 'reader.html');
-    res.sendFile(readerPath);
-  } catch (err) {
-    res.status(404).send('Story not found');
-  }
+// Redirect old /:username/:id URLs to the UUID-only form
+app.get('/read/:username/:id', (req, res) => {
+  res.redirect(301, `/read/${req.params.id}`);
+});
+app.get('/public/story/:username/:id/pictures/:filename', (req, res) => {
+  res.redirect(301, `/public/story/${req.params.id}/pictures/${req.params.filename}`);
+});
+app.get('/public/story/:username/:id', (req, res) => {
+  res.redirect(301, `/public/story/${req.params.id}`);
 });
 
 // Fallback to dynamic index.html for SPA navigation

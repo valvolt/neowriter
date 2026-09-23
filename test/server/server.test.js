@@ -621,8 +621,8 @@ describe('Publish', () => {
     assert.equal(found.name, 'Publish Test Story');
   });
 
-  it('GET /public/story/:username/:id returns published story content', async () => {
-    const res = await request.get(`/public/story/anonymous/${storyId}`).expect(200);
+  it('GET /public/story/:id returns published story content', async () => {
+    const res = await request.get(`/public/story/${storyId}`).expect(200);
     assert.equal(res.body.id, storyId);
     assert.equal(res.body.name, 'Publish Test Story');
     assert.ok(res.body.content.includes('Hello world.'));
@@ -634,8 +634,8 @@ describe('Publish', () => {
       .expect(200);
   });
 
-  it('GET /public/story/:username/:id returns 404 for unpublished story', async () => {
-    await request.get(`/public/story/anonymous/${storyId}`).expect(404);
+  it('GET /public/story/:id returns 404 for unpublished story', async () => {
+    await request.get(`/public/story/${storyId}`).expect(404);
   });
 
   it('POST /api/story/:id/publish returns 404 for bad id', async () => {
@@ -1094,15 +1094,16 @@ describe('Publish — cross-user isolation (hosted mode)', () => {
     assert.equal(found.name, 'Alice Story');
   });
 
-  it("published story is accessible at the correct /public/story/:username path", async () => {
-    const res = await hostedRequest.get(`/public/story/${ALICE}/${aliceStoryId}`).expect(200);
+  it("published story is accessible at the UUID-only /public/story/:id path", async () => {
+    const res = await hostedRequest.get(`/public/story/${aliceStoryId}`).expect(200);
     assert.equal(res.body.id, aliceStoryId);
     assert.equal(res.body.name, 'Alice Story');
   });
 
-  it("published story is NOT accessible under Bob's namespace", async () => {
-    // The story lives in Alice's directory; Bob's namespace has no such id
-    await hostedRequest.get(`/public/story/${BOB}/${aliceStoryId}`).expect(404);
+  it("old /public/story/:username/:id URL redirects to UUID-only URL", async () => {
+    const res = await hostedRequest.get(`/public/story/${ALICE}/${aliceStoryId}`).redirects(0);
+    assert.equal(res.status, 301);
+    assert.ok(res.headers.location.endsWith(`/public/story/${aliceStoryId}`));
   });
 
   it("Bob cannot read Alice's tiles via the private API", async () => {
@@ -1117,7 +1118,7 @@ describe('Publish — cross-user isolation (hosted mode)', () => {
       .set(asUser('alice@test.com'))
       .send({ name: 'Alice Draft' })
       .expect(200)).body;
-    await hostedRequest.get(`/public/story/${ALICE}/${story.id}`).expect(404);
+    await hostedRequest.get(`/public/story/${story.id}`).expect(404);
   });
 
   it("unpublishing removes the story from /public/stories", async () => {

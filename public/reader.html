@@ -153,17 +153,16 @@
       const titleEl = document.getElementById('story-title');
       const authorEl = document.getElementById('story-author');
 
-      // Extract username and id from URL: /read/:username/:id
+      // Extract id from URL: /read/:id
       const parts = window.location.pathname.split('/').filter(Boolean);
-      if (parts.length < 3 || parts[0] !== 'read') {
+      if (parts.length < 2 || parts[0] !== 'read') {
         contentEl.innerHTML = '<div class="error">Invalid URL</div>';
         return;
       }
-      const username = parts[1];
-      const storyId = parts[2];
+      const storyId = parts[1];
 
       try {
-        const res = await fetch(`/public/story/${username}/${storyId}`);
+        const res = await fetch(`/public/story/${storyId}`);
         if (!res.ok) {
           contentEl.innerHTML = '<div class="error">Story not found or not published.</div>';
           return;
@@ -188,7 +187,7 @@
         let markdown = data.content || '';
         markdown = markdown.replace(
           /!\[([^\]]*)\]\(\/api\/story\/[^/]+\/pictures\/([^)]+)\)/g,
-          `![$1](/public/story/${username}/${storyId}/pictures/$2)`
+          `![$1](/public/story/${storyId}/pictures/$2)`
         );
 
         // Pre-process: em-dash dialogue (*** is handled post-parse)
