@@ -3,11 +3,9 @@
 A distraction-free markdown writing tool with story management, tiles, highlights, keywords, and speech-to-text.
 
 ## Test it online
-Open [http://46.225.219.90:3007/](http://46.225.219.90:3007/) on your browser.
+Open [https://46.225.219.90.sslip.io/](https://46.225.219.90.sslip.io/) on your browser.
 
 Browse published stories or create your account to add yours.
-
-This app runs in HTTP (and not in HTTPS) so Auth0 will send you a warning when submitting your credentials. Just don't reuse that password for anything else.
 
 I will turn off the registration option if I see abuse.
 
