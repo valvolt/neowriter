@@ -1,0 +1,5 @@
+# Replace with your actual domain — Caddy will obtain and renew a Let's Encrypt
+# certificate automatically on first start (requires DNS pointing to this host).
+yourdomain.com {
+    reverse_proxy neo-writer:3000
+}

@@ -44,6 +44,20 @@ Rename .env.template into .env and copy/paste the provided variables there
 
 Then run the application as mentioned in the 'running locally' section
 
+## Deploying with HTTPS
+
+Use the included Caddy reverse proxy configuration, which handles TLS certificates automatically via Let's Encrypt:
+
+```bash
+docker compose -f docker-compose.https.yml up -d
+```
+
+Edit `Caddyfile` and replace `yourdomain.com` with your actual domain or hostname before starting.
+
+**No domain?** Use [sslip.io](https://sslip.io) — a free DNS service that maps `<ip>.sslip.io` to your IP. If your server is at `1.2.3.4`, set the Caddyfile hostname to `1.2.3.4.sslip.io` and you get a trusted Let's Encrypt certificate with no domain purchase.
+
+> Ports 80 and 443 must be reachable from the internet (needed for Let's Encrypt's HTTP challenge). Also update your Auth0 application's allowed callback and logout URLs to use `https://`.
+
 ## Current limitations
 
 - **No mobile layout** — The UI is designed for desktop browsers. A responsive mobile mode is planned but not yet implemented.
@@ -51,14 +65,16 @@ Then run the application as mentioned in the 'running locally' section
 ## Project layout
 
 ```
-server.js          — Express backend (APIs + static file serving)
+server.js               — Express backend (APIs + static file serving)
 public/
-  index.html       — Main HTML page
-  app.js           — Client-side application logic
-  style.css        — Styles
-docker-compose.yml — Docker Compose configuration
-Dockerfile         — Container build instructions
-data/              — Created at runtime; stores stories, tiles, highlights, pictures
+  index.html            — Main HTML page
+  app.js                — Client-side application logic
+  style.css             — Styles
+docker-compose.yml      — Docker Compose (HTTP, port 3007)
+docker-compose.https.yml — Docker Compose with Caddy (HTTPS)
+Caddyfile               — Caddy reverse proxy config
+Dockerfile              — Container build instructions
+data/                   — Created at runtime; stores stories, tiles, highlights, pictures
 ```
 
 ## Markdown support

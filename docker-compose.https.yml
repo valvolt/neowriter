@@ -1,0 +1,32 @@
+services:
+  neo-writer:
+    build: .
+    container_name: neo-writer
+    expose:
+      - "3000"        # internal only — not published to host; Caddy is the sole ingress
+    environment:
+      - PORT=3000
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/usr/src/app/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: neo-writer-caddy
+    ports:
+      - "80:80"       # required for ACME HTTP-01 challenge
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # persists certificates across restarts
+      - caddy_config:/config
+    depends_on:
+      - neo-writer
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -6,6 +6,9 @@ services:
       - "3007:3000"
     environment:
       - PORT=3000
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - ./data:/usr/src/app/data
     restart: unless-stopped
