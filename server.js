@@ -211,6 +211,20 @@ function storyDir(username, id) {
   return path.join(userDir(username), id);
 }
 
+// --- Pseudonym helpers ---
+
+const PSEUDONYMS_FILE = path.join(DATA_DIR, '_pseudonyms.json');
+
+async function readPseudonyms() {
+  try {
+    return JSON.parse(await fs.readFile(PSEUDONYMS_FILE, 'utf8'));
+  } catch (e) { return {}; }
+}
+
+async function writePseudonyms(ps) {
+  await atomicWrite(PSEUDONYMS_FILE, JSON.stringify(ps, null, 2));
+}
+
 // --- Serve index.html dynamically (inject user info) ---
 
 app.get('/', async (req, res) => {
@@ -220,6 +234,7 @@ app.get('/', async (req, res) => {
     try {
       let userDirs = [];
       try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
+      const ps = await readPseudonyms();
       const published = [];
       for (const udir of userDirs) {
         const upath = path.join(DATA_DIR, udir);
@@ -231,7 +246,7 @@ app.get('/', async (req, res) => {
           const meta = JSON.parse(raw);
           for (const item of meta) {
             if (item.published) {
-              published.push({ id: item.id, name: item.name, author: item.author || udir, username: udir });
+              published.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir });
             }
           }
         } catch (e) { /* skip */ }
@@ -1360,6 +1375,57 @@ app.get('/api/story/:id/published', async (req, res) => {
 
 // --- Public routes (no authentication required) ---
 
+// --- Pseudonym endpoints ---
+
+app.get('/api/pseudonym', async (req, res) => {
+  try {
+    const username = getUsername(req);
+    const ps = await readPseudonyms();
+    res.json({ pseudonym: ps[username] || null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to read pseudonym' });
+  }
+});
+
+app.post('/api/pseudonym', async (req, res) => {
+  const pseudonym = String((req.body && req.body.pseudonym) || '').trim();
+  if (!/^[A-Za-z0-9]{1,15}$/.test(pseudonym)) {
+    return res.status(400).json({ error: 'Pseudonym must be 1–15 alphanumeric characters.' });
+  }
+  try {
+    const username = getUsername(req);
+    const ps = await readPseudonyms();
+    const lc = pseudonym.toLowerCase();
+    for (const [key, val] of Object.entries(ps)) {
+      if (key !== username && val.toLowerCase() === lc) {
+        return res.status(409).json({ error: 'taken' });
+      }
+    }
+    ps[username] = pseudonym;
+    await writePseudonyms(ps);
+    res.json({ pseudonym });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to save pseudonym' });
+  }
+});
+
+app.delete('/api/pseudonym', async (req, res) => {
+  try {
+    const username = getUsername(req);
+    const ps = await readPseudonyms();
+    delete ps[username];
+    await writePseudonyms(ps);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to delete pseudonym' });
+  }
+});
+
+// --- Public routes (no authentication required) (continued) ---
+
 // List all published stories across all users
 app.get('/public/stories', async (req, res) => {
   try {
@@ -1370,6 +1436,7 @@ app.get('/public/stories', async (req, res) => {
     } catch (e) {
       return res.json([]);
     }
+    const ps = await readPseudonyms();
     for (const udir of userDirs) {
       const upath = path.join(DATA_DIR, udir);
       const stat = await fs.stat(upath);
@@ -1380,7 +1447,7 @@ app.get('/public/stories', async (req, res) => {
         const meta = JSON.parse(raw);
         for (const item of meta) {
           if (item.published) {
-            entries.push({ id: item.id, name: item.name, author: item.author || udir, username: udir });
+            entries.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir });
           }
         }
       } catch (e) {
@@ -1432,7 +1499,7 @@ app.get('/public/story/:username/:id', async (req, res) => {
       }
     }
 
-    res.json({ id, name: item.name, author: item.author || username, content });
+    res.json({ id, name: item.name, author: (await readPseudonyms())[safeUsername] || item.author || safeUsername, content });
   } catch (err) {
     if (err.code === 'ENOENT') return res.status(404).json({ error: 'not found or not published' });
     console.error(err);

@@ -38,24 +38,114 @@
   const userInfoEl = $('user-info');
   const filterInputEl = $('filter-input');
 
-  // Populate the header user info
-  if (typeof window !== 'undefined' && userInfoEl) {
-    const uname = window.username || 'anonymous';
-    // Show username (truncated if needed)
+  // --- User info + pseudonym UI ---
+  let userPseudonym = null; // loaded from server below
+
+  function buildUserInfoUI() {
+    if (!userInfoEl) return;
+    userInfoEl.innerHTML = '';
+
+    const displayName = userPseudonym || window.username || 'anonymous';
+
     const nameSpan = document.createElement('span');
-    nameSpan.textContent = uname;
-    nameSpan.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+    nameSpan.textContent = displayName;
+    nameSpan.style.cssText = 'overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;';
+    nameSpan.title = 'Click to set pseudonym';
     userInfoEl.appendChild(nameSpan);
 
     if (!window.local_mode) {
-      // Hosted mode: add logout button
       const logoutBtn = document.createElement('button');
       logoutBtn.textContent = 'Logout';
       logoutBtn.style.cssText = 'font-size:0.75rem; padding:3px 10px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; cursor:pointer; flex-shrink:0;';
       logoutBtn.addEventListener('click', () => { window.location.href = '/logout'; });
       userInfoEl.appendChild(logoutBtn);
     }
+
+    nameSpan.addEventListener('click', openPseudonymEditor);
   }
+
+  function openPseudonymEditor() {
+    if (!userInfoEl) return;
+    userInfoEl.innerHTML = '';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 15;
+    input.placeholder = 'Pseudonym (A-Z, a-z, 0-9)';
+    input.value = userPseudonym || '';
+    input.style.cssText = 'font-size:0.8rem; padding:2px 6px; border:1px solid #ccc; border-radius:4px; width:130px; outline:none;';
+
+    const errSpan = document.createElement('span');
+    errSpan.style.cssText = 'font-size:0.75rem; color:#c00; margin-left:4px;';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+    saveBtn.style.cssText = 'font-size:0.75rem; padding:2px 8px; border:1px solid #2b7cff; border-radius:4px; background:#2b7cff; color:#fff; cursor:pointer; flex-shrink:0;';
+
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = '✕';
+    clearBtn.title = 'Remove pseudonym';
+    clearBtn.style.cssText = 'font-size:0.75rem; padding:2px 6px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#666; cursor:pointer; flex-shrink:0;';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = 'font-size:0.75rem; padding:2px 6px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; cursor:pointer; flex-shrink:0;';
+
+    userInfoEl.appendChild(input);
+    userInfoEl.appendChild(errSpan);
+    userInfoEl.appendChild(saveBtn);
+    if (userPseudonym) userInfoEl.appendChild(clearBtn);
+    userInfoEl.appendChild(cancelBtn);
+    input.focus();
+    input.select();
+
+    saveBtn.addEventListener('click', async () => {
+      const val = input.value.trim();
+      if (val === '') {
+        try {
+          await api('/api/pseudonym', { method: 'DELETE' });
+          userPseudonym = null;
+          buildUserInfoUI();
+        } catch (e) { errSpan.textContent = 'Error removing'; }
+        return;
+      }
+      if (!/^[A-Za-z0-9]{1,15}$/.test(val)) {
+        errSpan.textContent = '1–15 alphanumeric chars';
+        return;
+      }
+      try {
+        const res = await api('/api/pseudonym', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pseudonym: val })
+        });
+        if (res.error === 'taken') { errSpan.textContent = 'Already taken'; return; }
+        if (res.error) { errSpan.textContent = res.error; return; }
+        userPseudonym = res.pseudonym;
+        buildUserInfoUI();
+      } catch (e) { errSpan.textContent = 'Error saving'; }
+    });
+
+    clearBtn.addEventListener('click', async () => {
+      try {
+        await api('/api/pseudonym', { method: 'DELETE' });
+        userPseudonym = null;
+        buildUserInfoUI();
+      } catch (e) { errSpan.textContent = 'Error removing'; }
+    });
+
+    cancelBtn.addEventListener('click', buildUserInfoUI);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') saveBtn.click();
+      if (e.key === 'Escape') buildUserInfoUI();
+    });
+  }
+
+  // Load pseudonym then build UI
+  api('/api/pseudonym').then(data => {
+    userPseudonym = data.pseudonym || null;
+    buildUserInfoUI();
+  }).catch(() => buildUserInfoUI());
 
   // Initial editor state
   if (editor) {
