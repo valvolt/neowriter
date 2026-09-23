@@ -384,9 +384,44 @@ describe('Highlights', () => {
       'old highlight name should no longer appear in the tile');
   });
 
+  it('POST /api/story/:id/highlights/:filename/rename propagates to other highlight files and to itself', async () => {
+    // Give alice.md body text that references itself by name
+    await request.post(`/api/story/${storyId}/highlights/alice.md/save`)
+      .send({ content: 'alice refers to itself and also ALICE in uppercase.' })
+      .expect(200);
+
+    // Create a second highlight that mentions the first highlight by name
+    await request.post(`/api/story/${storyId}/highlights`).expect(200); // creates highlight-2.md
+    await request.post(`/api/story/${storyId}/highlights/highlight-2.md/save`)
+      .send({ content: 'alice is mentioned here and also ALICE in uppercase.' })
+      .expect(200);
+
+    // Rename Alice → Bob
+    const res = await request.post(`/api/story/${storyId}/highlights/alice.md/rename`)
+      .send({ name: 'Bob' })
+      .expect(200);
+    assert.equal(res.body.name, 'Bob');
+
+    // bob.md (the renamed highlight) should have its own body updated
+    const bob = await request.get(`/api/story/${storyId}/highlights/bob.md`).expect(200);
+    assert.ok(bob.body.content.includes('bob'), 'renamed highlight body: lowercase alice → bob');
+    assert.ok(bob.body.content.includes('BOB'), 'renamed highlight body: uppercase ALICE → BOB');
+    assert.ok(!bob.body.content.includes('alice') && !bob.body.content.includes('Alice'),
+      'old name should no longer appear in the renamed highlight body');
+
+    // highlight-2 should also have been updated
+    const h2 = await request.get(`/api/story/${storyId}/highlights/highlight-2.md`).expect(200);
+    assert.ok(h2.body.content.includes('bob'), 'lowercase alice → bob in other highlight');
+    assert.ok(h2.body.content.includes('BOB'), 'uppercase ALICE → BOB in other highlight');
+    assert.ok(!h2.body.content.includes('alice') && !h2.body.content.includes('Alice'),
+      'old name should no longer appear in other highlight');
+  });
+
   it('DELETE /api/story/:id/highlights/:filename deletes a highlight', async () => {
-    await request.delete(`/api/story/${storyId}/highlights/alice.md`).expect(200);
-    await request.get(`/api/story/${storyId}/highlights/alice.md`).expect(404);
+    // alice.md was renamed to bob.md by the previous test
+    await request.delete(`/api/story/${storyId}/highlights/bob.md`).expect(200);
+    await request.get(`/api/story/${storyId}/highlights/bob.md`).expect(404);
+    await request.delete(`/api/story/${storyId}/highlights/highlight-2.md`).expect(200);
   });
 });
 

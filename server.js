@@ -1066,7 +1066,7 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
     names[newFilename] = newName;
     await writeNames(highlightsDir, names);
 
-    // Propagate rename into all tile files: replace oldName with newName (case-insensitive, Unicode-aware)
+    // Propagate rename into all tile and highlight files: replace oldName with newName (case-insensitive, Unicode-aware)
     const tilesDir = path.join(storyDir(username, id), 'tiles');
     let tileFiles = [];
     try {
@@ -1075,18 +1075,23 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
       tileFiles = [];
     }
 
+    let highlightFiles = [];
+    try {
+      highlightFiles = (await fs.readdir(highlightsDir))
+        .filter(f => f.endsWith('.md'));
+    } catch (e) {
+      highlightFiles = [];
+    }
+
     const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const replaceRegex = new RegExp(escapedOld, 'giu');
 
-    await Promise.all(tileFiles.map(async (tileFile) => {
-      const tilePath = path.join(tilesDir, tileFile);
+    const replaceInFile = async (filePath) => {
       try {
-        const content = await fs.readFile(tilePath, 'utf8');
+        const content = await fs.readFile(filePath, 'utf8');
         if (!replaceRegex.test(content)) return;
         replaceRegex.lastIndex = 0;
-        // Case-preserving replacement: match the case pattern of each occurrence
         const updated = content.replace(replaceRegex, (match) => {
-          // Mirror the case pattern of the match onto newName
           if (match === match.toUpperCase()) return newName.toUpperCase();
           if (match[0] === match[0].toUpperCase()) {
             return newName.charAt(0).toUpperCase() + newName.slice(1);
@@ -1094,12 +1099,17 @@ app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
           return newName.toLowerCase();
         });
         if (updated !== content) {
-          await atomicWrite(tilePath, updated);
+          await atomicWrite(filePath, updated);
         }
       } catch (e) {
-        console.error(`failed to update tile ${tileFile}`, e);
+        console.error(`failed to update file ${filePath}`, e);
       }
-    }));
+    };
+
+    await Promise.all([
+      ...tileFiles.map(f => replaceInFile(path.join(tilesDir, f))),
+      ...highlightFiles.map(f => replaceInFile(path.join(highlightsDir, f))),
+    ]);
 
     res.json({ filename: newFilename, name: newName });
   } catch (err) {
