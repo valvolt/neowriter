@@ -18,4 +18,7 @@ a:hover{opacity:0.9;} a.secondary{background:#f0f0f2;color:#333;}
 .stories .author{font-size:13px;color:#888;}
 .story-tags{display:inline-flex;flex-wrap:wrap;gap:3px;align-items:center;margin:0 6px;}
 .story-tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:0.72em;font-weight:500;background:#e8eaf0;color:#555;white-space:nowrap;}</style>
-</head><body><div class="card"><img src="/neowriter.png" alt="Neo Writer" class="logo"><h1>Neo Writer</h1><!--CARD_CONTENT--></div><!--STORIES--></body></html>
+<script src="/emoji.js"></script>
+</head><body><div class="card"><img src="/neowriter.png" alt="Neo Writer" class="logo"><h1>Neo Writer</h1><!--CARD_CONTENT--></div><!--STORIES-->
+<script>if(window.EMOJI_MAP){document.querySelectorAll('.story-tag').forEach(function(el){var t=el.textContent;if(t[0]===':' && t[t.length-1]===':'){var e=window.EMOJI_MAP[t.slice(1,-1)];if(e)el.textContent=e;}});}</script>
+</body></html>

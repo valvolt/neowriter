@@ -263,6 +263,8 @@
     page_with_curl: '📃', newspaper_roll: '🗞️', mag_right: '🔎',
   };
 
+  window.EMOJI_MAP = E;
+
   if (typeof marked === 'undefined') return;
 
   marked.use({

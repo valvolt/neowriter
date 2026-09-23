@@ -550,9 +550,16 @@
     return palette[idx];
   }
 
+  function resolveKeywordLabel(kw) {
+    if (window.EMOJI_MAP && kw.length > 2 && kw[0] === ':' && kw[kw.length - 1] === ':') {
+      return window.EMOJI_MAP[kw.slice(1, -1)] || kw;
+    }
+    return kw;
+  }
+
   function renderKeywordsInPreview() {
-    // Match ‡ followed by word characters (Unicode letters, numbers, hyphens, underscores)
-    const re = /\u2021([\p{L}\p{N}_-]+)/gu;
+    // Match ‡ followed by word characters or :emoji-shortcode:
+    const re = /\u2021([\p{L}\p{N}_-]+|:[a-z0-9_+\-]+:)/gu;
 
     const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, null, false);
     const textNodes = [];
@@ -580,7 +587,7 @@
         }
         const span = document.createElement('span');
         span.className = 'keyword-pill';
-        span.textContent = match[1]; // keyword without the ‡
+        span.textContent = resolveKeywordLabel(match[1]); // keyword without the ‡
         const style = keywordStyleFor(match[1]);
         span.style.background = style.background;
         span.style.color = style.color;
@@ -677,7 +684,7 @@
 
   function extractKeywordsFromContent(content) {
     if (!content) return [];
-    const re = /\u2021([\p{L}\p{N}_-]+)/gu;
+    const re = /\u2021([\p{L}\p{N}_-]+|:[a-z0-9_+\-]+:)/gu;
     const set = new Set();
     let m;
     while ((m = re.exec(content)) !== null) {
@@ -710,7 +717,7 @@
     for (const kw of tags) {
       const pill = document.createElement('span');
       pill.className = 'keyword-pill';
-      pill.textContent = kw;
+      pill.textContent = resolveKeywordLabel(kw);
       const style = keywordStyleFor(kw);
       pill.style.background = style.bg;
       pill.style.color = style.fg;
@@ -1620,7 +1627,7 @@
     for (const kw of tileTags) {
       const pill = document.createElement('span');
       pill.className = 'keyword-pill';
-      pill.textContent = kw;
+      pill.textContent = resolveKeywordLabel(kw);
       const style = keywordStyleFor(kw);
       pill.style.background = style.bg;
       pill.style.color = style.fg;
@@ -1856,7 +1863,7 @@
       keywords.forEach(kw => {
         const pill = document.createElement('span');
         pill.className = 'keyword-pill';
-        pill.textContent = kw;
+        pill.textContent = resolveKeywordLabel(kw);
         pill.style.cursor = 'pointer';
         const style = keywordStyleFor(kw);
         pill.style.background = style.background;

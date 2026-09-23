@@ -173,10 +173,12 @@
         titleEl.textContent = data.name || 'Untitled';
         const tagsEl = document.getElementById('story-tags');
         if (tagsEl && data.keywords && data.keywords.length > 0) {
+          const resolveEmoji = kw => (window.EMOJI_MAP && kw.length > 2 && kw[0] === ':' && kw[kw.length-1] === ':')
+            ? (window.EMOJI_MAP[kw.slice(1,-1)] || kw) : kw;
           data.keywords.forEach(kw => {
             const span = document.createElement('span');
             span.className = 'story-tag';
-            span.textContent = kw;
+            span.textContent = resolveEmoji(kw);
             tagsEl.appendChild(span);
           });
         }

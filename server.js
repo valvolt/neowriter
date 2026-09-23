@@ -217,7 +217,7 @@ const PSEUDONYMS_FILE = path.join(DATA_DIR, '_pseudonyms.json');
 
 // Extract ‡tag tokens from content, return deduplicated array
 function extractTags(content) {
-  const re = /‡([\p{L}\p{N}_-]+)/gu;
+  const re = /‡([\p{L}\p{N}_-]+|:[a-z0-9_+\-]+:)/gu;
   const set = new Set();
   let m;
   while ((m = re.exec(content)) !== null) set.add(m[1]);
@@ -226,7 +226,7 @@ function extractTags(content) {
 
 // Strip ‡tag tokens from content (for published pages)
 function stripTags(content) {
-  return content.replace(/[ \t]*‡[\p{L}\p{N}_-]+/gu, '').replace(/\n{3,}/g, '\n\n').trim();
+  return content.replace(/[ \t]*‡(?:[\p{L}\p{N}_-]+|:[a-z0-9_+\-]+:)/gu, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 async function readPseudonyms() {
