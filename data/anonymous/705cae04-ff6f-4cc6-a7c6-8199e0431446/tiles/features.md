@@ -9,6 +9,7 @@ Tiles are the sections of your story. They appear in the left panel and are all 
 * **Double-click** in the editor to scroll the preview to the same position
 * **Double-click** in the preview to jump to that tile in the editor
 * **Right-click** in the editor to insert a table, a picture, or a ‡keyword
+* Lines starting with **‡** inside a tile become keyword tags of the story once published (‡sci-fi ‡romance)
 
 
 ## Highlights
@@ -17,7 +18,7 @@ Highlights track recurring story elements — characters, places, objects, theme
 
 * Each highlight shows a count of how many times it is mentioned across all tiles
 * **Renaming** a highlight renames all of its occurrences in the story automatically
-* Lines starting with **‡** inside a highlight become keyword tags in the left panel
+* Lines starting with **‡** inside a highlight become keyword tags in the left panel (‡character ‡protagonist)
 * Click a keyword tag to group all highlights sharing that keyword at the top
 * Sort highlights alphabetically or by occurrence count (most → least or least → most)
 
