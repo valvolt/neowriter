@@ -186,6 +186,7 @@
   // Full-story rendering state
   let tilesOrder = [];
   let tilesCache = {};
+  let tileTagsCache = {};
   // Display names cache: filename -> display name (from server)
   let tileNamesCache = {};
   let highlightNamesCache = {};
@@ -685,6 +686,38 @@
     return Array.from(set);
   }
 
+  function buildTileTagsCache() {
+    tileTagsCache = {};
+    for (const [filename, content] of Object.entries(tilesCache)) {
+      tileTagsCache[filename] = extractKeywordsFromContent(content);
+    }
+  }
+
+  function updateTileItemTags(filename) {
+    if (!binderTilesList) return;
+    const li = binderTilesList.querySelector(`[data-filename="${CSS.escape(filename)}"]`);
+    if (!li) return;
+    let kws = li.querySelector('.tile-keywords');
+    const tags = tileTagsCache[filename] || [];
+    if (tags.length === 0) { if (kws) kws.remove(); return; }
+    if (!kws) {
+      kws = document.createElement('span');
+      kws.className = 'tile-keywords highlight-keywords';
+      const controls = li.querySelector('.tile-controls');
+      li.insertBefore(kws, controls);
+    }
+    kws.innerHTML = '';
+    for (const kw of tags) {
+      const pill = document.createElement('span');
+      pill.className = 'keyword-pill';
+      pill.textContent = kw;
+      const style = keywordStyleFor(kw);
+      pill.style.background = style.bg;
+      pill.style.color = style.fg;
+      kws.appendChild(pill);
+    }
+  }
+
   // Get the first keyword for a highlight (by filename), or null
   function getFirstKeywordForHighlight(filename) {
     const content = highlightsContentCache[filename];
@@ -989,6 +1022,7 @@
       const tilesList = Array.isArray(tiles) ? tiles : [];
       tilesOrder = tilesList.map(t => t.filename);
       tilesCache = {};
+      tileTagsCache = {};
       tileNamesCache = {};
       tilesList.forEach(t => { tileNamesCache[t.filename] = t.name; });
       await Promise.all(tilesList.map(async (tile) => {
@@ -1119,6 +1153,7 @@
     }
 
     await fetchAllTilesContent();
+    buildTileTagsCache();
     await fetchHighlightsList();
     await prefetchAllHighlightContents();
     loadTilesList();
@@ -1578,6 +1613,20 @@
     nameSpan.title = tile.filename;
     nameSpan.style.cursor = 'pointer';
     li.appendChild(nameSpan);
+
+    const tagsContainer = document.createElement('span');
+    tagsContainer.className = 'tile-keywords highlight-keywords';
+    const tileTags = tileTagsCache[tile.filename] || [];
+    for (const kw of tileTags) {
+      const pill = document.createElement('span');
+      pill.className = 'keyword-pill';
+      pill.textContent = kw;
+      const style = keywordStyleFor(kw);
+      pill.style.background = style.bg;
+      pill.style.color = style.fg;
+      tagsContainer.appendChild(pill);
+    }
+    li.appendChild(tagsContainer);
 
     const controls = document.createElement('div');
     controls.className = 'tile-controls';
@@ -2181,6 +2230,10 @@
     // Update cache and refresh highlights counts when editing tiles
     if (editMode === 'tile' && currentTileFilename) {
       tilesCache[currentTileFilename] = text;
+      const prevTags = tileTagsCache[currentTileFilename] || [];
+      const newTags = extractKeywordsFromContent(text);
+      tileTagsCache[currentTileFilename] = newTags;
+      if (prevTags.join(',') !== newTags.join(',')) updateTileItemTags(currentTileFilename);
       loadHighlightsList();
       refreshTodoBadge();
     }

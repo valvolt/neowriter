@@ -215,6 +215,20 @@ function storyDir(username, id) {
 
 const PSEUDONYMS_FILE = path.join(DATA_DIR, '_pseudonyms.json');
 
+// Extract ‡tag tokens from content, return deduplicated array
+function extractTags(content) {
+  const re = /‡([\p{L}\p{N}_-]+)/gu;
+  const set = new Set();
+  let m;
+  while ((m = re.exec(content)) !== null) set.add(m[1]);
+  return Array.from(set);
+}
+
+// Strip ‡tag tokens from content (for published pages)
+function stripTags(content) {
+  return content.replace(/[ \t]*‡[\p{L}\p{N}_-]+/gu, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 async function readPseudonyms() {
   try {
     return JSON.parse(await fs.readFile(PSEUDONYMS_FILE, 'utf8'));
@@ -1558,7 +1572,7 @@ app.get('/public/story/:username/:id', async (req, res) => {
       }
     }
 
-    res.json({ id, name: item.name, author: (await readPseudonyms())[safeUsername] || item.author || safeUsername, content });
+    res.json({ id, name: item.name, author: (await readPseudonyms())[safeUsername] || item.author || safeUsername, content: stripTags(content), keywords: extractTags(content) });
   } catch (err) {
     if (err.code === 'ENOENT') return res.status(404).json({ error: 'not found or not published' });
     console.error(err);
