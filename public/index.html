@@ -17,12 +17,14 @@
 <body>
   <header>
     <h1><img src="/neowriter.png" alt="Neo Writer" style="height:32px;width:32px;object-fit:contain;vertical-align:middle;margin-right:8px;border-radius:6px;">Neo Writer</h1>
-    <div id="open-story-name" style="display:inline-block; margin-left:16px; font-weight:600;"></div>
+    <div id="open-story-name"></div>
+    <div class="header-spacer"></div>
     <input type="search" id="filter-input" placeholder="Filter…" autocomplete="off"
-      style="position:absolute; left:360px; top:11px; width:180px; font-size:0.8rem; padding:4px 8px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; outline:none;" />
-    <button id="toggle-publish" style="position:absolute; right:560px; top:14px; font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#f5f5f5; color:#888; cursor:pointer; font-weight:500; display:none;">Published ✗</button>
-    <button id="toggle-highlights" style="position:absolute; right:420px; top:14px; font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#e3ecff; color:#2b7cff; cursor:pointer; font-weight:500;">Highlights ✓</button>
-    <div id="speech-controls" style="position:absolute; right:200px; top:12px; display:inline-flex; align-items:center; gap:4px;">
+      style="font-size:0.8rem; padding:4px 8px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; outline:none; width:160px; flex-shrink:0;" />
+    <button id="toggle-publish" style="font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#f5f5f5; color:#888; cursor:pointer; font-weight:500; display:none; flex-shrink:0;">Published ✗</button>
+    <button id="toggle-highlights" style="font-size:0.75rem; padding:4px 10px; border:1px solid #ccc; border-radius:4px; background:#e3ecff; color:#2b7cff; cursor:pointer; font-weight:500; flex-shrink:0;">Highlights ✓</button>
+    <a href="https://github.com/valvolt/neowriter" target="_blank" rel="noopener noreferrer" title="GitHub" style="color:#555; display:inline-flex; align-items:center; flex-shrink:0;"><svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+    <div id="speech-controls" style="display:inline-flex; align-items:center; gap:4px; flex-shrink:0;">
       <select id="speech-lang" class="speech-lang" title="Speech language">
         <option value="en-US">EN-US</option>
         <option value="en-GB">EN-UK</option>
@@ -36,8 +38,7 @@
       </select>
       <button id="btn-mic" class="btn-mic" title="Speech to text">🎤</button>
     </div>
-    <a href="https://github.com/valvolt/neowriter" target="_blank" rel="noopener noreferrer" title="GitHub" style="position:absolute; left:50%; top:13px; transform:translateX(-50%); color:#555; display:inline-flex; align-items:center;"><svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
-    <div id="user-info" style="position:absolute; right:16px; top:14px; font-size:0.85rem; color:#333; display:inline-flex; align-items:center; gap:8px; max-width:170px;"></div>
+    <div id="user-info"></div>
   </header>
 
   <!-- expose local_mode and username to the client -->

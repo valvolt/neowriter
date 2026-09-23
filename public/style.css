@@ -26,10 +26,10 @@ body{
 
 /* Header */
 header{
-  position:relative;
   height:var(--header-height);
   display:flex;
   align-items:center;
+  gap:8px;
   padding:0 16px;
   background:#fff;
   border-bottom:1px solid #e6e6e9;
@@ -38,6 +38,28 @@ header h1{
   margin:0;
   font-size:18px;
   color:var(--accent);
+  flex-shrink:0;
+}
+#open-story-name{
+  font-weight:600;
+  flex-shrink:1;
+  min-width:0;
+  max-width:220px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.header-spacer{
+  flex:1;
+  min-width:8px;
+}
+#user-info{
+  font-size:0.85rem;
+  color:#333;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  flex-shrink:0;
 }
 
 /* Main area */
