@@ -326,7 +326,7 @@ main{
 #preview th,#preview td{padding:6px 13px;border:1px solid #d0d7de}
 #preview th{background-color:#f6f8fa;font-weight:600}
 #preview tr:nth-child(2n){background-color:#f6f8fa}
-#preview img{max-width:100%;height:auto}
+#preview img{display:block;margin:0 auto;max-width:100%;height:auto}
 /* Task list items: hide bullet markers, show only checkbox */
 #preview ul li input[type="checkbox"]{margin-right:6px;}
 #preview ul:has(li input[type="checkbox"]){list-style:none;padding-left:0;}
