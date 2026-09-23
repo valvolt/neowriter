@@ -164,8 +164,7 @@
           `![$1](/public/story/${username}/${storyId}/pictures/$2)`
         );
 
-        // Pre-process: convert standalone *** to dinkus, em-dash dialogue
-        markdown = markdown.replace(/^\*{3}$/gm, '<p style="text-align:center;letter-spacing:1em;margin:1em 0;">✦✦✦</p>');
+        // Pre-process: em-dash dialogue (*** is handled post-parse)
         markdown = markdown.replace(/^- (?!\[[ xX]\])/gm, '\u2014 ');
 
         // Render markdown — use a sanitizing renderer so raw HTML in story
@@ -186,7 +185,10 @@
               }
             }
           });
-          contentEl.innerHTML = marked.parse(markdown);
+          // *** on its own line becomes <hr> in marked; replace with dinkus after parsing
+          let rendered = marked.parse(markdown);
+          rendered = rendered.replace(/<hr\s*\/?>/gi, '<p style="text-align:center;letter-spacing:1em;margin:1em 0;">✦✦✦</p>');
+          contentEl.innerHTML = rendered;
         } else {
           contentEl.innerHTML = '<pre>' + markdown.replace(/</g, '&lt;') + '</pre>';
         }
