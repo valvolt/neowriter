@@ -261,8 +261,11 @@ app.get('/', async (req, res) => {
       }
     } catch (e) { /* ignore */ }
 
+    const cardContent = '<p>Please log in to continue.</p><a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a>';
     const loginPath = path.join(PUBLIC_DIR, 'login.html');
-    const loginHtml = (await fs.readFile(loginPath, 'utf8')).replace('<!--STORIES-->', storiesHtml);
+    const loginHtml = (await fs.readFile(loginPath, 'utf8'))
+      .replace('<!--STORIES-->', storiesHtml)
+      .replace('<!--CARD_CONTENT-->', cardContent);
     return res.type('html').send(loginHtml);
   }
 
@@ -282,6 +285,52 @@ app.get('/', async (req, res) => {
     window.username = ${JSON.stringify(displayName)};
   </script>`
   );
+  res.type('html').send(html);
+});
+
+// Discover page — published stories list, works for authenticated and unauthenticated users
+app.get('/discover', async (req, res) => {
+  let storiesHtml = '';
+  try {
+    let userDirs = [];
+    try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
+    const ps = await readPseudonyms();
+    const published = [];
+    for (const udir of userDirs) {
+      const upath = path.join(DATA_DIR, udir);
+      try {
+        const stat = await fs.stat(upath);
+        if (!stat.isDirectory()) continue;
+        const mf = path.join(upath, 'metadata.json');
+        const raw = await fs.readFile(mf, 'utf8');
+        const meta = JSON.parse(raw);
+        for (const item of meta) {
+          if (item.published) {
+            published.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir });
+          }
+        }
+      } catch (e) { /* skip */ }
+    }
+    if (published.length > 0) {
+      storiesHtml = '<div class="stories"><h2>Published Stories</h2><ul>' +
+        published.map(s =>
+          `<li><a href="/read/${escHtml(s.username)}/${escHtml(s.id)}">${escHtml(s.name)}</a>` +
+          `<span class="author">by ${escHtml(s.author)}</span></li>`
+        ).join('') +
+        '</ul></div>';
+    }
+  } catch (e) { /* ignore */ }
+
+  const isLoggedIn = !LOCAL_MODE && req.oidc && req.oidc.isAuthenticated();
+  const displayName = isLoggedIn ? (getDisplayName(req) || 'there') : '';
+  const cardContent = isLoggedIn
+    ? `<p>Welcome, ${escHtml(displayName)}.</p><a href="/">Open editor</a><a href="/logout" class="secondary">Logout</a>`
+    : '<p>Please log in to continue.</p><a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a>';
+
+  const loginPath = path.join(PUBLIC_DIR, 'login.html');
+  const html = (await fs.readFile(loginPath, 'utf8'))
+    .replace('<!--STORIES-->', storiesHtml)
+    .replace('<!--CARD_CONTENT-->', cardContent);
   res.type('html').send(html);
 });
 

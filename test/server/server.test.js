@@ -1367,3 +1367,42 @@ describe('Emoji extension', () => {
     assert.ok(parse('smile:').includes('smile:'));
   });
 });
+
+// ============================================================================
+
+describe('GET /discover', () => {
+  let storyId;
+
+  before(async () => {
+    await setupTestEnv();
+    const story = (await request.post('/api/create')
+      .send({ name: 'Discover Test Story' }).expect(200)).body;
+    storyId = story.id;
+  });
+
+  after(async () => { await rmrf(tmpDir); });
+
+  it('returns 200 with HTML', async () => {
+    const res = await request.get('/discover').expect(200);
+    assert.ok(res.text.toLowerCase().includes('<!doctype html'));
+  });
+
+  it('contains login and signup links (unauthenticated / local mode)', async () => {
+    const res = await request.get('/discover').expect(200);
+    assert.ok(res.text.includes('/login'));
+    assert.ok(res.text.includes('/signup'));
+  });
+
+  it('shows no stories when none are published', async () => {
+    const res = await request.get('/discover').expect(200);
+    assert.ok(!res.text.includes('Published Stories'));
+  });
+
+  it('shows published story after publishing', async () => {
+    await request.post(`/api/story/${storyId}/publish`)
+      .send({ published: true }).expect(200);
+    const res = await request.get('/discover').expect(200);
+    assert.ok(res.text.includes('Discover Test Story'));
+    assert.ok(res.text.includes('Published Stories'));
+  });
+});

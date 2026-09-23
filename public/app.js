@@ -147,6 +147,15 @@
     buildUserInfoUI();
   }).catch(() => buildUserInfoUI());
 
+  // Show "← Published" button in hosted mode
+  if (!window.local_mode) {
+    const btnDiscover = $('btn-discover');
+    if (btnDiscover) {
+      btnDiscover.style.display = '';
+      btnDiscover.addEventListener('click', () => { window.location.href = '/discover'; });
+    }
+  }
+
   // Initial editor state
   if (editor) {
     editor.disabled = true;
