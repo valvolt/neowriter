@@ -239,41 +239,58 @@ async function writePseudonyms(ps) {
   await atomicWrite(PSEUDONYMS_FILE, JSON.stringify(ps, null, 2));
 }
 
+// Build the published stories HTML block (shared by GET / and GET /discover)
+async function buildPublishedStoriesHtml() {
+  let userDirs = [];
+  try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
+  const ps = await readPseudonyms();
+  const published = [];
+  for (const udir of userDirs) {
+    if (udir.startsWith('_')) continue;
+    const upath = path.join(DATA_DIR, udir);
+    try {
+      const stat = await fs.stat(upath);
+      if (!stat.isDirectory()) continue;
+      const mf = path.join(upath, 'metadata.json');
+      const raw = await fs.readFile(mf, 'utf8');
+      const meta = JSON.parse(raw);
+      for (const item of meta) {
+        if (!item.published) continue;
+        // Extract tags from all tiles of this story
+        let tags = [];
+        try {
+          const tilesDir = path.join(upath, item.id, 'tiles');
+          let order = [];
+          try { order = JSON.parse(await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8')); }
+          catch (e) { order = (await fs.readdir(tilesDir).catch(() => [])).filter(f => f.endsWith('.md')).sort(); }
+          let combined = '';
+          for (const f of order) {
+            try { combined += await fs.readFile(safeJoin(tilesDir, f), 'utf8') + '\n'; } catch (e) {}
+          }
+          tags = extractTags(combined);
+        } catch (e) {}
+        published.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir, tags });
+      }
+    } catch (e) { /* skip */ }
+  }
+  if (published.length === 0) return '';
+  return '<div class="stories"><h2>Published Stories</h2><ul>' +
+    published.map(s => {
+      const tagPills = s.tags.length > 0
+        ? `<span class="story-tags">${s.tags.map(t => `<span class="story-tag">${escHtml(t)}</span>`).join('')}</span>`
+        : '';
+      return `<li><a href="/read/${escHtml(s.username)}/${escHtml(s.id)}">${escHtml(s.name)}</a>${tagPills}` +
+        `<span class="author">by ${escHtml(s.author)}</span></li>`;
+    }).join('') +
+    '</ul></div>';
+}
+
 // --- Serve index.html dynamically (inject user info) ---
 
 app.get('/', async (req, res) => {
   if (!LOCAL_MODE && (!req.oidc || !req.oidc.isAuthenticated())) {
-    // Show login page with published stories for unauthenticated users
     let storiesHtml = '';
-    try {
-      let userDirs = [];
-      try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
-      const ps = await readPseudonyms();
-      const published = [];
-      for (const udir of userDirs) {
-        const upath = path.join(DATA_DIR, udir);
-        try {
-          const stat = await fs.stat(upath);
-          if (!stat.isDirectory()) continue;
-          const mf = path.join(upath, 'metadata.json');
-          const raw = await fs.readFile(mf, 'utf8');
-          const meta = JSON.parse(raw);
-          for (const item of meta) {
-            if (item.published) {
-              published.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir });
-            }
-          }
-        } catch (e) { /* skip */ }
-      }
-      if (published.length > 0) {
-        storiesHtml = '<div class="stories"><h2>Published Stories</h2><ul>' +
-          published.map(s =>
-            `<li><a href="/read/${escHtml(s.username)}/${escHtml(s.id)}">${escHtml(s.name)}</a>` +
-            `<span class="author">by ${escHtml(s.author)}</span></li>`
-          ).join('') +
-          '</ul></div>';
-      }
-    } catch (e) { /* ignore */ }
+    try { storiesHtml = await buildPublishedStoriesHtml(); } catch (e) {}
 
     const cardContent = '<p>Please log in to continue.</p><a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a>';
     const loginPath = path.join(PUBLIC_DIR, 'login.html');
@@ -305,35 +322,7 @@ app.get('/', async (req, res) => {
 // Discover page — published stories list, works for authenticated and unauthenticated users
 app.get('/discover', async (req, res) => {
   let storiesHtml = '';
-  try {
-    let userDirs = [];
-    try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
-    const ps = await readPseudonyms();
-    const published = [];
-    for (const udir of userDirs) {
-      const upath = path.join(DATA_DIR, udir);
-      try {
-        const stat = await fs.stat(upath);
-        if (!stat.isDirectory()) continue;
-        const mf = path.join(upath, 'metadata.json');
-        const raw = await fs.readFile(mf, 'utf8');
-        const meta = JSON.parse(raw);
-        for (const item of meta) {
-          if (item.published) {
-            published.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir });
-          }
-        }
-      } catch (e) { /* skip */ }
-    }
-    if (published.length > 0) {
-      storiesHtml = '<div class="stories"><h2>Published Stories</h2><ul>' +
-        published.map(s =>
-          `<li><a href="/read/${escHtml(s.username)}/${escHtml(s.id)}">${escHtml(s.name)}</a>` +
-          `<span class="author">by ${escHtml(s.author)}</span></li>`
-        ).join('') +
-        '</ul></div>';
-    }
-  } catch (e) { /* ignore */ }
+  try { storiesHtml = await buildPublishedStoriesHtml(); } catch (e) {}
 
   const isLoggedIn = !LOCAL_MODE && req.oidc && req.oidc.isAuthenticated();
   const displayName = isLoggedIn ? (getDisplayName(req) || 'there') : '';
