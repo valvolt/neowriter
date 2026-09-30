@@ -619,3 +619,90 @@ mark {
   #editor-pane,#render-pane{max-width:100%;}
   #editor{min-height:200px}
 }
+
+/* Mobile bottom nav: hidden on desktop */
+#mobile-nav{display:none;}
+
+/* ===== Mobile layout (≤600px): single-panel + bottom tabs ===== */
+@media (max-width:600px){
+  main{flex-direction:column; padding:0;}
+
+  /* All three panels hidden by default; body class shows the active one */
+  #menu,#editor-pane,#render-pane{
+    display:none !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    flex:1;
+    border-radius:0;
+    overflow-y:auto;
+  }
+  body.mobile-tab-files   #menu        {display:flex !important;}
+  body.mobile-tab-write   #editor-pane {display:flex !important;}
+  body.mobile-tab-preview #render-pane {display:flex !important;}
+
+  /* Resize handles: useless and block touch */
+  .resize-handle{display:none !important;}
+
+  /* Header: hide non-essential items */
+  header h1           {display:none;}
+  .header-spacer      {display:none;}
+  #toggle-highlights  {display:none !important;}
+  header > a          {display:none !important;}
+  #speech-controls    {display:none !important;}
+  #filter-input       {width:90px !important;}
+  #open-story-name    {max-width:120px;}
+
+  /* Bottom nav bar */
+  #mobile-nav{
+    display:flex;
+    position:fixed;
+    bottom:0;left:0;right:0;
+    height:48px;
+    background:#fff;
+    border-top:1px solid #e6e6e9;
+    z-index:300;
+  }
+  .mobile-tab-btn{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:2px;
+    border:none;
+    background:transparent;
+    cursor:pointer;
+    color:#888;
+    padding:4px 0;
+    transition:color 0.15s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .mobile-tab-btn.active{color:var(--accent);}
+  .mobile-tab-icon {font-size:18px;line-height:1;}
+  .mobile-tab-label{font-size:10px;font-weight:500;}
+
+  /* Footer sits above the mobile nav */
+  footer{
+    position:fixed;
+    bottom:48px;left:0;right:0;
+    z-index:200;
+  }
+  /* Push main content above the fixed footer + nav (30 + 48 = 78px) */
+  main{margin-bottom:78px;}
+
+  /* Dialog: prevent overflow on 375px phones */
+  .dialog{
+    min-width:0;
+    width:calc(100vw - 32px);
+    max-width:calc(100vw - 32px);
+  }
+
+  /* Larger touch targets */
+  .story-item{padding:12px 8px;min-height:44px;}
+  .tile-item {padding:10px 8px;min-height:44px;}
+
+  /* Editor adjustments */
+  #editor      {min-height:0;height:100%;}
+  #editor-ruler{display:none;}
+}

@@ -1137,6 +1137,7 @@
     storyPublished = false;
     refreshGlobalTodoBadge();
     updateEditorRuler();
+    setMobileTab('files');
   }
 
   async function showBinder(storyId, storyName) {
@@ -1151,6 +1152,7 @@
     document.querySelector('.menu-controls').style.display = 'none';
     if (globalTodoSection) globalTodoSection.style.display = 'none';
     binderEl.style.display = '';
+    setMobileTab('files');
     applyHighlight(binderStoryName, storyName, filterQuery);
 
     // Show publish button when a story is open (only in hosted mode)
@@ -1719,6 +1721,7 @@
   function openTile(filename, lineIndex) {
     if (!currentStoryId) return;
     editMode = 'tile';
+    setMobileTab('write');
     currentTileFilename = filename;
     currentHighlightFilename = null;
     if (binderTodoEntry) binderTodoEntry.classList.remove('active');
@@ -1988,6 +1991,7 @@
     try {
       const res = await api(`/api/story/${currentStoryId}/highlights/${filename}`);
       editMode = 'highlight';
+      setMobileTab('write');
       currentHighlightFilename = filename;
       currentTileFilename = null;
       if (binderTodoEntry) binderTodoEntry.classList.remove('active');
@@ -2046,6 +2050,7 @@
   async function openTodo() {
     if (!currentStoryId) return;
     editMode = 'todo';
+    setMobileTab('preview');
     currentTileFilename = null;
     currentHighlightFilename = null;
     if (editor) {
@@ -2776,6 +2781,7 @@
 
   async function openGlobalTodo() {
     globalTodoActive = true;
+    setMobileTab('preview');
     if (globalTodoEntry) globalTodoEntry.classList.add('active');
     if (editor) {
       editor.disabled = true;
@@ -2910,6 +2916,37 @@
   if (globalTodoEntry) {
     globalTodoEntry.addEventListener('click', openGlobalTodo);
   }
+
+  // --- Mobile tab navigation ---
+
+  function setMobileTab(tab) {
+    if (window.innerWidth > 600) return;
+    document.body.classList.remove('mobile-tab-files', 'mobile-tab-write', 'mobile-tab-preview');
+    document.body.classList.add('mobile-tab-' + tab);
+    document.querySelectorAll('.mobile-tab-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.id === 'mobile-tab-' + tab);
+    });
+  }
+
+  ['files', 'write', 'preview'].forEach(function(tab) {
+    var btn = $('mobile-tab-' + tab);
+    if (btn) btn.addEventListener('click', function() {
+      setMobileTab(tab);
+      if (tab === 'preview') renderPreview();
+    });
+  });
+
+  window.addEventListener('resize', function() {
+    if (window.innerWidth <= 600) {
+      var hasTab = ['files', 'write', 'preview'].some(function(t) {
+        return document.body.classList.contains('mobile-tab-' + t);
+      });
+      if (!hasTab) setMobileTab('files');
+    } else {
+      document.body.classList.remove('mobile-tab-files', 'mobile-tab-write', 'mobile-tab-preview');
+      document.querySelectorAll('.mobile-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    }
+  });
 
   // --- Initial load ---
   showStoryList();
