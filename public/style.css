@@ -645,11 +645,13 @@ mark {
   .resize-handle{display:none !important;}
 
   /* Header: hide non-essential items */
-  header h1           {display:none;}
+  header h1           {font-size:0;}          /* hide "Neo Writer" text, keep logo image */
+  header h1 img       {width:28px;height:28px;}
   .header-spacer      {display:none;}
   #toggle-highlights  {display:none !important;}
   header > a          {display:none !important;}
-  #speech-controls    {display:none !important;}
+  #speech-controls    {display:inline-flex !important;}  /* keep mic button */
+  #speech-lang        {display:none;}                    /* hide language select */
   #filter-input       {width:90px !important;}
   #open-story-name    {max-width:120px;}
 
