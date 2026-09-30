@@ -247,6 +247,12 @@ main{
   gap:4px;
   align-items:center;
 }
+.tile-item .tile-keywords{
+  flex-wrap:nowrap;
+  overflow:hidden;
+  max-width:45%;
+  flex-shrink:0;
+}
 .btn-tile-rename, .btn-tile-delete{
   font-size:10px;
   padding:2px 5px;
