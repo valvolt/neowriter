@@ -7,6 +7,7 @@ const fsSync = require('fs');
 // --- Config ---
 const config = require('./config');
 const { PORT, DATA_DIR, PUBLIC_DIR, DEFAULT_USER, CLIENT_ID, MODE } = config;
+const { createMetaHelpers } = require('./utils/meta');
 
 let LOCAL_MODE;
 if (MODE === 'LOCAL') {
@@ -160,40 +161,7 @@ async function validateRemoteHost(hostname) {
 
 // --- Per-user data helpers ---
 
-function userDir(username) {
-  return path.join(DATA_DIR, username);
-}
-
-function metaFile(username) {
-  return path.join(userDir(username), 'metadata.json');
-}
-
-// Ensure data directory and metadata file exist for a user.
-async function ensureUserData(username) {
-  const dir = userDir(username);
-  await fs.mkdir(dir, { recursive: true });
-  const mf = metaFile(username);
-  try {
-    await fs.access(mf);
-  } catch (e) {
-    await fs.writeFile(mf, JSON.stringify([], null, 2), 'utf8');
-  }
-}
-
-
-
-async function readMeta(username) {
-  const mf = metaFile(username);
-  try {
-    const raw = await fs.readFile(mf, 'utf8');
-    const meta = JSON.parse(raw);
-    if (!Array.isArray(meta)) throw new Error('metadata.json is not an array');
-    return meta;
-  } catch (e) {
-    if (e.code === 'ENOENT') return [];
-    throw e;
-  }
-}
+const { userDir, metaFile, ensureUserData, readMeta, writeMeta } = createMetaHelpers(DATA_DIR);
 
 function normalizeSearch(s) {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -203,10 +171,6 @@ async function atomicWrite(filePath, data) {
   const tmp = filePath + '.tmp';
   await fs.writeFile(tmp, data, 'utf8');
   await fs.rename(tmp, filePath);
-}
-
-async function writeMeta(username, meta) {
-  await atomicWrite(metaFile(username), JSON.stringify(meta, null, 2));
 }
 
 // Get the base directory for a story
@@ -412,6 +376,32 @@ app.get('/api/search', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'search failed' });
+  }
+});
+
+// Get aggregated tile tags for all stories (used by story list to show keyword pills)
+app.get('/api/tags', async (req, res) => {
+  try {
+    const username = getUsername(req);
+    const meta = await readMeta(username);
+    const result = {};
+    await Promise.all(meta.map(async story => {
+      const tilesDir = path.join(storyDir(username, story.id), 'tiles');
+      let combined = '';
+      try {
+        let order = [];
+        try { order = JSON.parse(await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8')); } catch (e) {}
+        await Promise.all(order.map(async f => {
+          try { combined += await fs.readFile(path.join(tilesDir, f), 'utf8') + '\n'; } catch (e) {}
+        }));
+      } catch (e) {}
+      const tags = extractTags(combined);
+      if (tags.length > 0) result[story.id] = tags;
+    }));
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'failed to read tags' });
   }
 });
 

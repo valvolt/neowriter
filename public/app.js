@@ -1512,6 +1512,28 @@
           storyListEl.appendChild(buildStoryItem(item));
         });
       }
+      // Fetch and apply tile keyword pills asynchronously so the list renders first
+      api('/api/tags').then(tagMap => {
+        if (!tagMap || typeof tagMap !== 'object') return;
+        for (const [id, tags] of Object.entries(tagMap)) {
+          const li = storyListEl.querySelector(`[data-id="${CSS.escape(id)}"]`);
+          if (!li) continue;
+          const left = li.firstElementChild;
+          if (!left) continue;
+          const container = document.createElement('span');
+          container.className = 'story-tile-tags';
+          for (const kw of tags) {
+            const pill = document.createElement('span');
+            pill.className = 'keyword-pill';
+            pill.textContent = resolveKeywordLabel(kw);
+            const style = keywordStyleFor(kw);
+            pill.style.background = style.background;
+            pill.style.color = style.color;
+            container.appendChild(pill);
+          }
+          left.appendChild(container);
+        }
+      }).catch(() => {});
     } catch (e) {
       console.error('failed to load list', e);
       storyListEl.innerHTML = '<li class="error">Failed to load</li>';

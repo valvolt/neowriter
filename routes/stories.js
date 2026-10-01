@@ -4,52 +4,18 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
 const { sanitizeFilename } = require('../utils/sanitize');
-
-// Helper functions
-function userDir(DATA_DIR, username) {
-  return path.join(DATA_DIR, username);
-}
-function metaFile(DATA_DIR, username) {
-  return path.join(userDir(DATA_DIR, username), 'metadata.json');
-}
-async function ensureUserData(DATA_DIR, username) {
-  const dir = userDir(DATA_DIR, username);
-  await fs.mkdir(dir, { recursive: true });
-  const mf = metaFile(DATA_DIR, username);
-  try {
-    await fs.access(mf);
-  } catch (e) {
-    await fs.writeFile(mf, JSON.stringify([], null, 2), 'utf8');
-  }
-}
-async function readMeta(DATA_DIR, username) {
-  const mf = metaFile(DATA_DIR, username);
-  try {
-    const raw = await fs.readFile(mf, 'utf8');
-    const meta = JSON.parse(raw);
-    if (!Array.isArray(meta)) throw new Error('metadata.json is not an array');
-    return meta;
-  } catch (e) {
-    if (e.code === 'ENOENT') return [];
-    throw e;
-  }
-}
-async function writeMeta(DATA_DIR, username, meta) {
-  const mf = metaFile(DATA_DIR, username);
-  const tmp = mf + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(meta, null, 2), 'utf8');
-  await fs.rename(tmp, mf);
-}
+const { createMetaHelpers } = require('../utils/meta');
 
 module.exports = function storiesRouter({ DATA_DIR, getUsername, getDisplayName, DEFAULT_USER }) {
+  const { userDir, ensureUserData, readMeta, writeMeta } = createMetaHelpers(DATA_DIR);
   const router = express.Router();
 
   // List stories
   router.get('/list', async (req, res) => {
     try {
       const username = getUsername(req);
-      await ensureUserData(DATA_DIR, username);
-      const meta = await readMeta(DATA_DIR, username);
+      await ensureUserData(username);
+      const meta = await readMeta(username);
       res.json(meta);
     } catch (err) {
       console.error(err);
@@ -62,14 +28,14 @@ module.exports = function storiesRouter({ DATA_DIR, getUsername, getDisplayName,
     const name = (req.body && req.body.name) ? String(req.body.name) : 'Untitled';
     try {
       const username = getUsername(req);
-      await ensureUserData(DATA_DIR, username);
+      await ensureUserData(username);
       const id = uuidv4();
-      const meta = await readMeta(DATA_DIR, username);
+      const meta = await readMeta(username);
       const author = getDisplayName(req) || username;
       meta.push({ id, name, author });
-      await writeMeta(DATA_DIR, username, meta);
+      await writeMeta(username, meta);
       // Create directories and a tile stub as in original
-      const dir = path.join(userDir(DATA_DIR, username), id);
+      const dir = path.join(userDir(username), id);
       const tilesDir = path.join(dir, 'tiles');
       const highlightsDir = path.join(dir, 'highlights');
       await fs.mkdir(tilesDir, { recursive: true });
@@ -96,11 +62,11 @@ module.exports = function storiesRouter({ DATA_DIR, getUsername, getDisplayName,
     if (!name) return res.status(400).json({ error: 'name required' });
     try {
       const username = getUsername(req);
-      const meta = await readMeta(DATA_DIR, username);
+      const meta = await readMeta(username);
       const item = meta.find(m => m.id === id);
       if (!item) return res.status(404).json({ error: 'not found' });
       item.name = name;
-      await writeMeta(DATA_DIR, username, meta);
+      await writeMeta(username, meta);
       res.json({ id, name });
     } catch (err) {
       console.error(err);
@@ -113,13 +79,13 @@ module.exports = function storiesRouter({ DATA_DIR, getUsername, getDisplayName,
     const id = req.params.id;
     try {
       const username = getUsername(req);
-      const meta = await readMeta(DATA_DIR, username);
+      const meta = await readMeta(username);
       const idx = meta.findIndex(m => m.id === id);
       if (idx === -1) return res.status(404).json({ error: 'not found' });
       meta.splice(idx, 1);
-      await writeMeta(DATA_DIR, username, meta);
+      await writeMeta(username, meta);
       // Remove directory
-      const dir = path.join(userDir(DATA_DIR, username), id);
+      const dir = path.join(userDir(username), id);
       try {
         await fs.rm(dir, { recursive: true, force: true });
       } catch (e) {}
