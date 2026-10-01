@@ -1108,7 +1108,10 @@
     togglePublishEl.addEventListener('click', togglePublish);
   }
 
-  function showStoryList() {
+  async function showStoryList() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await saveCurrent();
     storyListEl.style.display = '';
     document.querySelector('.menu-controls').style.display = '';
     binderEl.style.display = 'none';
@@ -1173,7 +1176,7 @@
       ? (matchingTiles.length > 0 ? matchingTiles[0] : null)
       : tilesOrder[0];
     if (tileToOpen) {
-      openTile(tileToOpen);
+      await openTile(tileToOpen);
     } else {
       renderPreview();
     }
@@ -1527,8 +1530,8 @@
       await loadList();
       if (res && res.id) {
         await showBinder(res.id, res.name);
-        if (res.tile && res.tile.filename) {
-          openTile(res.tile.filename);
+        if (res.tile && res.tile.filename && currentTileFilename !== res.tile.filename) {
+          await openTile(res.tile.filename);
         }
       }
     } catch (e) {
@@ -1718,8 +1721,11 @@
     return li;
   }
 
-  function openTile(filename, lineIndex) {
+  async function openTile(filename, lineIndex) {
     if (!currentStoryId) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await saveCurrent();
     editMode = 'tile';
     setMobileTab('write');
     currentTileFilename = filename;
@@ -1988,6 +1994,9 @@
 
   async function openHighlight(filename, lineIndex) {
     if (!currentStoryId) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    await saveCurrent();
     try {
       const res = await api(`/api/story/${currentStoryId}/highlights/${filename}`);
       editMode = 'highlight';

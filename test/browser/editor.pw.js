@@ -93,7 +93,7 @@ test('second tile opens in the editor', async ({ page }) => {
   await expect(page.locator('#binder-tiles-list .active')).toHaveCount(1);
 });
 
-test('editor content is saved and reloaded', async ({ page }) => {
+test('editor content is saved when navigating away', async ({ page }) => {
   await page.goto('/');
   await openNewStory(page, 'Save Test');
   await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
@@ -101,13 +101,12 @@ test('editor content is saved and reloaded', async ({ page }) => {
   await page.fill('#editor', 'Persistent content');
   await page.dispatchEvent('#editor', 'input');
 
-  // Navigate away and back
+  // Back button force-saves the current tile before showing the story list
   await page.click('#btn-back');
   await page.locator('#story-list .story-name').click();
   await page.locator('#binder-tiles-list li').first().click();
 
-  // Content should have been saved
-  await expect(page.locator('#editor')).toContainText('Persistent content');
+  await expect(page.locator('#editor')).toHaveValue('Persistent content');
 });
 
 // publish toggle is only visible in hosted mode (window.local_mode === false)
