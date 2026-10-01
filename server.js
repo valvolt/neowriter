@@ -19,6 +19,8 @@ if (MODE === 'LOCAL') {
 
 const app = express();
 
+const indexTemplate = fsSync.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
+
 // --- Auth0 setup (hosted mode only) ---
 if (!LOCAL_MODE) {
   const { auth } = require('express-openid-connect');
@@ -240,8 +242,15 @@ async function writePseudonyms(ps) {
   await atomicWrite(PSEUDONYMS_FILE, JSON.stringify(ps, null, 2));
 }
 
+let _publishedHtmlCache = null;
+let _publishedHtmlExpiry = 0;
+const PUBLISHED_CACHE_TTL = 30_000;
+
 // Build the published stories HTML block (shared by GET / and GET /discover)
 async function buildPublishedStoriesHtml() {
+  if (_publishedHtmlCache !== null && Date.now() < _publishedHtmlExpiry) {
+    return _publishedHtmlCache;
+  }
   let userDirs = [];
   try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
   const ps = await readPseudonyms();
@@ -274,8 +283,12 @@ async function buildPublishedStoriesHtml() {
       }
     } catch (e) { /* skip */ }
   }
-  if (published.length === 0) return '';
-  return '<div class="stories"><h2>Published Stories</h2><ul>' +
+  if (published.length === 0) {
+    _publishedHtmlCache = '';
+    _publishedHtmlExpiry = Date.now() + PUBLISHED_CACHE_TTL;
+    return '';
+  }
+  const html = '<div class="stories"><h2>Published Stories</h2><ul>' +
     published.map(s => {
       const tagPills = s.tags.length > 0
         ? `<span class="story-tags">${s.tags.map(t => `<span class="story-tag">${escHtml(t)}</span>`).join('')}</span>`
@@ -284,6 +297,9 @@ async function buildPublishedStoriesHtml() {
         `<span class="author">by ${escHtml(s.author)}</span></li>`;
     }).join('') +
     '</ul></div>';
+  _publishedHtmlCache = html;
+  _publishedHtmlExpiry = Date.now() + PUBLISHED_CACHE_TTL;
+  return html;
 }
 
 // --- Serve index.html dynamically (inject user info) ---
@@ -305,11 +321,7 @@ app.get('/', async (req, res) => {
   const displayName = getDisplayName(req) || DEFAULT_USER;
   const localMode = LOCAL_MODE;
 
-  // Read and inject into index.html
-  const indexPath = path.join(PUBLIC_DIR, 'index.html');
-  let html = fsSync.readFileSync(indexPath, 'utf8');
-  // Replace the placeholder script block
-  html = html.replace(
+  let html = indexTemplate.replace(
     /<!-- expose local_mode and username to the client -->\s*<script>[\s\S]*?<\/script>/,
     `<!-- expose local_mode and username to the client -->
   <script>
@@ -1421,6 +1433,7 @@ app.post('/api/story/:id/publish', async (req, res) => {
     if (!item) return res.status(404).json({ error: 'not found' });
     item.published = published;
     await writeMeta(username, meta);
+    _publishedHtmlExpiry = 0;
     res.json({ id, published });
   } catch (err) {
     console.error(err);
@@ -1620,9 +1633,7 @@ app.get('*', (req, res) => {
   const displayName = getDisplayName(req) || DEFAULT_USER;
   const localMode = LOCAL_MODE;
 
-  const indexPath = path.join(PUBLIC_DIR, 'index.html');
-  let html = fsSync.readFileSync(indexPath, 'utf8');
-  html = html.replace(
+  let html = indexTemplate.replace(
     /<!-- expose local_mode and username to the client -->\s*<script>[\s\S]*?<\/script>/,
     `<!-- expose local_mode and username to the client -->
   <script>
