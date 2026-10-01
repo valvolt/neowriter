@@ -1086,12 +1086,12 @@ describe('Publish — cross-user isolation (hosted mode)', () => {
       .expect(200);
   });
 
-  it("published story appears in /public/stories with Alice's username", async () => {
+  it("published story appears in /public/stories without exposing username", async () => {
     const res = await hostedRequest.get('/public/stories').expect(200);
     const found = res.body.find(s => s.id === aliceStoryId);
     assert.ok(found, 'story should appear in public list');
-    assert.equal(found.username, ALICE);
     assert.equal(found.name, 'Alice Story');
+    assert.ok(!found.username, 'username must not be exposed in public API');
   });
 
   it("published story is accessible at the UUID-only /public/story/:id path", async () => {

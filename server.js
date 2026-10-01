@@ -269,7 +269,7 @@ async function buildPublishedStoriesHtml() {
           }
           tags = extractTags(combined);
         } catch (e) {}
-        published.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir, tags });
+        published.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, tags });
       }
     } catch (e) { /* skip */ }
   }
@@ -1509,7 +1509,7 @@ app.get('/public/stories', async (req, res) => {
         const meta = JSON.parse(raw);
         for (const item of meta) {
           if (item.published) {
-            entries.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir, username: udir });
+            entries.push({ id: item.id, name: item.name, author: ps[udir] || item.author || udir });
           }
         }
       } catch (e) {
