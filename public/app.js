@@ -719,8 +719,8 @@
       pill.className = 'keyword-pill';
       pill.textContent = resolveKeywordLabel(kw);
       const style = keywordStyleFor(kw);
-      pill.style.background = style.bg;
-      pill.style.color = style.fg;
+      pill.style.background = style.background;
+      pill.style.color = style.color;
       kws.appendChild(pill);
     }
   }
@@ -1634,8 +1634,8 @@
       pill.className = 'keyword-pill';
       pill.textContent = resolveKeywordLabel(kw);
       const style = keywordStyleFor(kw);
-      pill.style.background = style.bg;
-      pill.style.color = style.fg;
+      pill.style.background = style.background;
+      pill.style.color = style.color;
       tagsContainer.appendChild(pill);
     }
     li.appendChild(tagsContainer);
