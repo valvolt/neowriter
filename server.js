@@ -153,6 +153,7 @@ async function validateRemoteHost(hostname) {
   for (const { address } of addresses) {
     if (isPrivateIp(address)) throw new Error('SSRF_BLOCKED');
   }
+  return addresses;
 }
 
 // --- Per-user data helpers ---
@@ -1299,18 +1300,25 @@ app.post('/api/story/:id/pictures', async (req, res) => {
           const doGet = async (targetUrl) => {
             let parsedUrl;
             try { parsedUrl = new URL(targetUrl); } catch (e) { return reject(new Error('BAD_URL')); }
-            // Guard against SSRF: reject private/internal hosts on every hop
+            // Guard against SSRF: resolve once, validate, then pin the connection
+            // to the validated IP so a DNS rebind cannot redirect to a private host.
+            let resolvedIp;
             try {
-              await validateRemoteHost(parsedUrl.hostname);
+              const addresses = await validateRemoteHost(parsedUrl.hostname);
+              resolvedIp = addresses[0].address;
             } catch (e) {
               return reject(e);
             }
             const mod = parsedUrl.protocol === 'https:' ? require('https') : require('http');
             const options = {
-              hostname: parsedUrl.hostname,
+              hostname: resolvedIp,
               port: parsedUrl.port || undefined,
               path: parsedUrl.pathname + parsedUrl.search,
-              headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NeoWriter/1.0)' }
+              headers: {
+                'Host': parsedUrl.hostname,
+                'User-Agent': 'Mozilla/5.0 (compatible; NeoWriter/1.0)'
+              },
+              ...(parsedUrl.protocol === 'https:' ? { servername: parsedUrl.hostname } : {})
             };
             const httpReq = mod.get(options, (response) => {
               if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
