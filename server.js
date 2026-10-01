@@ -391,9 +391,10 @@ app.get('/api/tags', async (req, res) => {
       try {
         let order = [];
         try { order = JSON.parse(await fs.readFile(path.join(tilesDir, '_order.json'), 'utf8')); } catch (e) {}
-        await Promise.all(order.map(async f => {
-          try { combined += await fs.readFile(path.join(tilesDir, f), 'utf8') + '\n'; } catch (e) {}
+        const contents = await Promise.all(order.map(async f => {
+          try { return await fs.readFile(path.join(tilesDir, f), 'utf8'); } catch (e) { return ''; }
         }));
+        combined = contents.join('\n');
       } catch (e) {}
       const tags = extractTags(combined);
       if (tags.length > 0) result[story.id] = tags;
