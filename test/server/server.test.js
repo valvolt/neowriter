@@ -1321,6 +1321,7 @@ describe('Emoji extension', () => {
   before(() => {
     const PUBLIC = path.join(__dirname, '..', '..', 'public');
     const ctx = {};
+    ctx.window = ctx;  // emoji.js sets window.EMOJI_MAP; give it a window reference
     vm.createContext(ctx);
     vm.runInContext(fsSync.readFileSync(path.join(PUBLIC, 'marked.min.js'), 'utf8'), ctx);
     vm.runInContext(fsSync.readFileSync(path.join(PUBLIC, 'emoji.js'), 'utf8'), ctx);

@@ -196,6 +196,37 @@ function stripTags(content) {
   return content.replace(/[ \t]*‡(?:[\p{L}\p{N}_-]+|:[a-z0-9_+\-]+:)/gu, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Deterministic color for a keyword tag — mirrors keywordStyleFor() in app.js
+const TAG_PALETTE = [
+  { background: 'rgb(245, 245, 245)', color: 'rgb(51, 51, 51)' },
+  { background: 'rgb(238, 238, 238)', color: 'rgb(34, 34, 34)' },
+  { background: 'rgb(230, 243, 255)', color: 'rgb(20, 60, 110)' },
+  { background: 'rgb(214, 234, 248)', color: 'rgb(21, 67, 96)' },
+  { background: 'rgb(224, 247, 250)', color: 'rgb(0, 77, 102)' },
+  { background: 'rgb(232, 245, 233)', color: 'rgb(27, 94, 32)' },
+  { background: 'rgb(220, 237, 200)', color: 'rgb(51, 105, 30)' },
+  { background: 'rgb(224, 247, 250)', color: 'rgb(0, 96, 100)' },
+  { background: 'rgb(225, 245, 254)', color: 'rgb(1, 87, 155)' },
+  { background: 'rgb(243, 229, 245)', color: 'rgb(74, 20, 140)' },
+  { background: 'rgb(237, 231, 246)', color: 'rgb(69, 39, 160)' },
+  { background: 'rgb(255, 235, 238)', color: 'rgb(136, 14, 79)' },
+  { background: 'rgb(252, 228, 236)', color: 'rgb(173, 20, 87)' },
+  { background: 'rgb(255, 243, 224)', color: 'rgb(230, 81, 0)' },
+  { background: 'rgb(255, 249, 230)', color: 'rgb(204, 112, 0)' },
+  { background: 'rgb(255, 253, 231)', color: 'rgb(245, 127, 23)' },
+  { background: 'rgb(255, 248, 225)', color: 'rgb(245, 124, 0)' },
+  { background: 'rgb(239, 235, 233)', color: 'rgb(78, 52, 46)' },
+  { background: 'rgb(250, 244, 239)', color: 'rgb(93, 64, 55)' },
+  { background: 'rgb(236, 239, 241)', color: 'rgb(33, 33, 33)' },
+];
+function tagStyleFor(keyword) {
+  const key = String(keyword || '').toLowerCase();
+  let h = 0;
+  for (let i = 0; i < key.length; i++) { h = ((h << 5) - h) + key.charCodeAt(i); h |= 0; }
+  const s = TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length];
+  return `background:${s.background};color:${s.color}`;
+}
+
 async function readPseudonyms() {
   try {
     return JSON.parse(await fs.readFile(PSEUDONYMS_FILE, 'utf8'));
@@ -255,7 +286,7 @@ async function buildPublishedStoriesHtml() {
   const html = '<div class="stories"><h2>Published Stories</h2><ul>' +
     published.map(s => {
       const tagPills = s.tags.length > 0
-        ? `<span class="story-tags">${s.tags.map(t => `<span class="story-tag">${escHtml(t)}</span>`).join('')}</span>`
+        ? `<span class="story-tags">${s.tags.map(t => `<span class="story-tag" style="${tagStyleFor(t)}">${escHtml(t)}</span>`).join('')}</span>`
         : '';
       return `<li><a href="/read/${escHtml(s.id)}">${escHtml(s.name)}</a>${tagPills}` +
         `<span class="author">by ${escHtml(s.author)}</span></li>`;
