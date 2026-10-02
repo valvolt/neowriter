@@ -15,12 +15,14 @@ I will turn off the registration option if I see abuse.
 - **Markdown editing** — Full markdown support with live preview (headings, bold/italic, links, images, tables, code blocks, task lists, mermaid diagrams)
 - **Highlights** — Create character/concept sheets linked to your story; highlight names appear colored in the rendered text with hover tooltips
 - **Keywords** — Tag highlights with `‡keyword` markers; keywords render as colored pills and determine highlight colors in the preview
+- **Story list** — Published stories are sorted to the top with a green indicator; keyword pills from tiles appear next to each story name so you can see at a glance which stories are sci-fi, romance, etc.
 - **Speech-to-text** — Dictate text using the browser's SpeechRecognition API with real-time ghost preview and multi-language support
 - **Context menu** — Right-click to insert tables, links, pictures, keywords, or create highlights from selected text
 - **Content sync** — Double click anywhere on your text to auto-scroll the rendering page to your current location
 - **TODO-list** — All ☐ and ☑ spread through story tiles are collected in a single, editable TODO list
 - **Auto-save** — All changes are saved automatically as you type
-- **Publishing** — Make your stories visible/hidden to unauthenticated users
+- **Publishing** — Make your stories publicly readable via a shareable URL
+- **Mobile** — Responsive layout with bottom tab navigation for phones (≤ 600 px)
 
 ## Running locally
 
@@ -55,10 +57,6 @@ Edit `Caddyfile` and replace `yourdomain.com` with your actual domain or hostnam
 **No domain?** Use [sslip.io](https://sslip.io) — a free DNS service that maps `<ip>.sslip.io` to your IP. If your server is at `1.2.3.4`, set the Caddyfile hostname to `1.2.3.4.sslip.io` and you get a trusted Let's Encrypt certificate with no domain purchase.
 
 > Ports 80 and 443 must be reachable from the internet (needed for Let's Encrypt's HTTP challenge). Also update your Auth0 application's allowed callback and logout URLs to use `https://`.
-
-## Current limitations
-
-- **No mobile layout** — The UI is designed for desktop browsers. A responsive mobile mode is planned but not yet implemented.
 
 ## Project layout
 
@@ -96,6 +94,7 @@ Rendering is handled client-side using the [marked](https://github.com/markedjs/
 - **Dialogue formatting** — Lines starting with `- ` are rendered as em-dash dialogue
 - **Dice symbols**  — `[.]`, `[...]`, `[.....]` are rendered as ⚀ ⚂ ⚄
 - **Dinkus**   — `***` is rendered as ✦ ✦ ✦
+- **Emojis** — `:smile:` is rendered as 😄
 
 ## License
 

@@ -9,7 +9,7 @@ Tiles are the sections of your story. They appear in the left panel and are all 
 * **Double-click** in the editor to scroll the preview to the same position
 * **Double-click** in the preview to jump to that tile in the editor
 * **Right-click** in the editor to insert a table, a picture, or a ‡keyword
-* Lines starting with **‡** inside a tile become keyword tags of the story once published (‡sci-fi ‡romance)
+* Lines starting with **‡** inside a tile become keyword tags visible in the story list and when published (‡sci-fi ‡romance)
 
 
 ## Highlights
@@ -53,8 +53,20 @@ The footer shows live word and character counts:
 In Chrome, click the **microphone** icon in the header to dictate into the editor. Interim results appear as ghost text; the transcript is inserted when you pause.
 
 
+## Story list
+The left panel shows all your stories with at-a-glance status information.
+
+
+* **Keyword pills** — tags from tile ‡markers appear next to each story name so you can tell genres apart (e.g. ‡sci-fi ‡fantasy) at a glance
+* **Published-first sort** — published stories float to the top of the list; within each group, stories are sorted alphabetically. A small green indicator appears in front of published story names
+
+
 ## Publishing
-Click the **Publish** button in the header to make your story publicly readable via a shareable URL, without requiring a login (HOSTED mode only).
+Click the **Publish** button in the header to make your story publicly readable via a shareable URL, without requiring a login. Works in both local and hosted mode.
+
+
+## Mobile
+On small screens (≤ 600 px) the layout switches to a bottom tab bar: tap **Edit**, **Preview**, **Highlights**, or **Tiles** to switch between panels.
 
 
 ## Highlights toggle
