@@ -1194,6 +1194,12 @@
     left.style.flex = '1';
     left.style.overflow = 'hidden';
 
+    if (item.published) {
+      const dot = document.createElement('span');
+      dot.title = 'Published';
+      dot.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;background:#2e7d32;flex-shrink:0;';
+      left.appendChild(dot);
+    }
     const nameSpan = document.createElement('span');
     nameSpan.className = 'story-name';
     applyHighlight(nameSpan, item.name || 'Untitled', filterQuery);
@@ -1492,7 +1498,10 @@
     try {
       const list = await api('/api/list');
       const items = Array.isArray(list) ? list : [];
-      items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      items.sort((a, b) => {
+        if (!!a.published !== !!b.published) return a.published ? -1 : 1;
+        return (a.name || '').localeCompare(b.name || '');
+      });
       if (filterQuery) {
         const results = await api(`/api/search?q=${encodeURIComponent(filterQuery)}`);
         filterResults = Array.isArray(results) ? results : [];
