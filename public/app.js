@@ -1197,7 +1197,7 @@
     if (item.published) {
       const dot = document.createElement('span');
       dot.title = 'Published';
-      dot.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;background:#2e7d32;flex-shrink:0;';
+      dot.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;background:#e8f5e9;border:1px solid #2e7d32;flex-shrink:0;';
       left.appendChild(dot);
     }
     const nameSpan = document.createElement('span');
