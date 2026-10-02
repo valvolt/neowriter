@@ -1389,10 +1389,9 @@ describe('GET /discover', () => {
     assert.ok(res.text.toLowerCase().includes('<!doctype html'));
   });
 
-  it('contains login and signup links (unauthenticated / local mode)', async () => {
+  it('contains a link back to the editor in local mode', async () => {
     const res = await request.get('/discover').expect(200);
-    assert.ok(res.text.includes('/login'));
-    assert.ok(res.text.includes('/signup'));
+    assert.ok(res.text.includes('href="/"'));
   });
 
   it('shows no stories when none are published', async () => {

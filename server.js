@@ -334,9 +334,11 @@ app.get('/discover', async (req, res) => {
 
   const isLoggedIn = !LOCAL_MODE && req.oidc && req.oidc.isAuthenticated();
   const displayName = isLoggedIn ? (getDisplayName(req) || 'there') : '';
-  const cardContent = isLoggedIn
-    ? `<p>Welcome, ${escHtml(displayName)}.</p><a href="/">Open editor</a><a href="/logout" class="secondary">Logout</a>`
-    : '<p>Please log in to continue.</p><a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a>';
+  const cardContent = LOCAL_MODE
+    ? '<a href="/">← Back to editor</a>'
+    : isLoggedIn
+      ? `<p>Welcome, ${escHtml(displayName)}.</p><a href="/">Open editor</a><a href="/logout" class="secondary">Logout</a>`
+      : '<p>Please log in to continue.</p><a href="/login">Log in</a><a href="/signup" class="secondary">Sign up</a>';
 
   const loginPath = path.join(PUBLIC_DIR, 'login.html');
   const html = (await fs.readFile(loginPath, 'utf8'))

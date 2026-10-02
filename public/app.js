@@ -147,13 +147,11 @@
     buildUserInfoUI();
   }).catch(() => buildUserInfoUI());
 
-  // Show "← Published" button in hosted mode
-  if (!window.local_mode) {
-    const btnDiscover = $('btn-discover');
-    if (btnDiscover) {
-      btnDiscover.style.display = '';
-      btnDiscover.addEventListener('click', () => { window.location.href = '/discover'; });
-    }
+  // Show "← Published" button
+  const btnDiscover = $('btn-discover');
+  if (btnDiscover) {
+    btnDiscover.style.display = '';
+    btnDiscover.addEventListener('click', () => { window.location.href = '/discover'; });
   }
 
   // Initial editor state
@@ -1158,8 +1156,8 @@
     setMobileTab('files');
     applyHighlight(binderStoryName, storyName, filterQuery);
 
-    // Show publish button when a story is open (only in hosted mode)
-    if (togglePublishEl && !window.local_mode) {
+    // Show publish button when a story is open
+    if (togglePublishEl) {
       togglePublishEl.style.display = 'inline-block';
       await fetchPublishState();
     }
