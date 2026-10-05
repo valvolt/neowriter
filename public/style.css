@@ -140,10 +140,12 @@ main{
 }
 .story-item:hover{background:#fbfcff}
 .story-name{flex:1; margin-right:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.story-item .story-keywords{display:inline-flex;flex-wrap:nowrap;overflow:hidden;max-width:40%;flex-shrink:0;gap:4px;align-items:center;margin-right:6px;}
+.story-item .story-keywords .keyword-pill{font-size:10px;padding:0 5px;border-radius:7px;line-height:1.4;}
 .btn-rename, .btn-delete{
-  font-size:12px;
-  padding:4px 6px;
-  border-radius:4px;
+  font-size:10px;
+  padding:2px 5px;
+  border-radius:3px;
   border:1px solid #e0e0e3;
   background:#fff;
   cursor:pointer;

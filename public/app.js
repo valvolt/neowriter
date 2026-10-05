@@ -1207,6 +1207,10 @@
     left.appendChild(nameSpan);
     li.appendChild(left);
 
+    const storyTagsContainer = document.createElement('span');
+    storyTagsContainer.className = 'story-keywords';
+    li.appendChild(storyTagsContainer);
+
     const controls = document.createElement('div');
     controls.style.display = 'inline-flex';
     controls.style.gap = '6px';
@@ -1214,12 +1218,12 @@
 
     const renameBtn = document.createElement('button');
     renameBtn.className = 'btn-rename';
-    renameBtn.textContent = 'Rename';
+    renameBtn.textContent = 'Ren';
     controls.appendChild(renameBtn);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn-delete';
-    deleteBtn.textContent = 'Delete';
+    deleteBtn.textContent = 'Del';
     deleteBtn.title = 'Delete story';
     controls.appendChild(deleteBtn);
 
@@ -1525,10 +1529,8 @@
         for (const [id, tags] of Object.entries(tagMap)) {
           const li = storyListEl.querySelector(`[data-id="${CSS.escape(id)}"]`);
           if (!li) continue;
-          const left = li.firstElementChild;
-          if (!left) continue;
-          const container = document.createElement('span');
-          container.className = 'story-tile-tags';
+          const tagsEl = li.querySelector('.story-keywords');
+          if (!tagsEl) continue;
           for (const kw of tags) {
             const pill = document.createElement('span');
             pill.className = 'keyword-pill';
@@ -1536,9 +1538,8 @@
             const style = keywordStyleFor(kw);
             pill.style.background = style.background;
             pill.style.color = style.color;
-            container.appendChild(pill);
+            tagsEl.appendChild(pill);
           }
-          left.appendChild(container);
         }
       }).catch(() => {});
     } catch (e) {
