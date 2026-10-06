@@ -60,6 +60,18 @@
       logoutBtn.style.cssText = 'font-size:0.75rem; padding:3px 10px; border:1px solid #ccc; border-radius:4px; background:#fff; color:#333; cursor:pointer; flex-shrink:0;';
       logoutBtn.addEventListener('click', () => { window.location.href = '/logout'; });
       userInfoEl.appendChild(logoutBtn);
+
+      api('/api/storage').then(data => {
+        if (!data || data.quota === null) return;
+        const usedMB  = (data.used  / (1024 * 1024)).toFixed(1);
+        const quotaMB = (data.quota / (1024 * 1024)).toFixed(0);
+        const pct = data.used / data.quota;
+        const color = pct >= 0.9 ? '#c62828' : pct >= 0.7 ? '#e65100' : '#888';
+        const quotaDiv = document.createElement('div');
+        quotaDiv.style.cssText = `font-size:0.7rem; color:${color}; margin-top:2px; white-space:nowrap;`;
+        quotaDiv.textContent = `${usedMB} / ${quotaMB} MB`;
+        userInfoEl.appendChild(quotaDiv);
+      }).catch(() => {});
     }
 
     nameSpan.addEventListener('click', openPseudonymEditor);

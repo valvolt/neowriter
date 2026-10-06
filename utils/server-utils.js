@@ -130,6 +130,57 @@ function getDisplayNameForFile(names, filename) {
   return filename.replace(/\.md$/, '');
 }
 
+// --- Directory size (for storage quota) ---
+
+const _dirSizeCache = new Map();
+const DIR_SIZE_TTL_MS = 10_000;
+
+async function getUserDirSize(username) {
+  const cached = _dirSizeCache.get(username);
+  if (cached && Date.now() - cached.ts < DIR_SIZE_TTL_MS) return cached.size;
+
+  async function walk(dir) {
+    let total = 0;
+    let entries;
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); }
+    catch (_) { return 0; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) total += await walk(full);
+      else { try { total += (await fs.stat(full)).size; } catch (_) {} }
+    }
+    return total;
+  }
+
+  const size = await walk(userDir(username));
+  _dirSizeCache.set(username, { size, ts: Date.now() });
+  return size;
+}
+
+function invalidateDirSizeCache(username) {
+  _dirSizeCache.delete(username);
+}
+
+// --- Per-user quota config (_quota.json at DATA_DIR root) ---
+
+const QUOTA_FILE = path.join(DATA_DIR, '_quota.json');
+let _quotaConfig = null;
+let _quotaConfigTs = 0;
+const QUOTA_CONFIG_TTL_MS = 60_000;
+
+async function getQuotaBytes(username, defaultQuotaMB) {
+  if (!_quotaConfig || Date.now() - _quotaConfigTs > QUOTA_CONFIG_TTL_MS) {
+    try {
+      _quotaConfig = JSON.parse(await fs.readFile(QUOTA_FILE, 'utf8'));
+    } catch (_) {
+      _quotaConfig = {};
+    }
+    _quotaConfigTs = Date.now();
+  }
+  const mb = (username in _quotaConfig) ? _quotaConfig[username] : defaultQuotaMB;
+  return mb * 1024 * 1024;
+}
+
 module.exports = {
   userDir, metaFile, ensureUserData, readMeta, writeMeta, withMetaLock,
   normalizeSearch, safeJoin, atomicWrite, storyDir,
@@ -139,5 +190,6 @@ module.exports = {
   PSEUDONYMS_FILE, readPseudonyms, writePseudonyms,
   readTileOrder, writeTileOrder,
   readNames, writeNames, getDisplayNameForFile,
+  getUserDirSize, invalidateDirSizeCache, getQuotaBytes,
   sanitizeFilename,
 };

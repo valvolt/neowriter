@@ -6,7 +6,7 @@ const fsSync = require('fs');
 
 // --- Config ---
 const config = require('./config');
-const { PORT, DATA_DIR, PUBLIC_DIR, DEFAULT_USER, CLIENT_ID, MODE } = config;
+const { PORT, DATA_DIR, PUBLIC_DIR, DEFAULT_USER, CLIENT_ID, MODE, STORAGE_QUOTA_MB } = config;
 const {
   ensureUserData, readMeta,
   normalizeSearch, safeJoin, atomicWrite, storyDir,
@@ -15,6 +15,7 @@ const {
   extractTags, stripTags,
   readPseudonyms,
   readTileOrder,
+  getUserDirSize, invalidateDirSizeCache, getQuotaBytes,
 } = require('./utils/server-utils');
 
 let LOCAL_MODE;
@@ -75,6 +76,49 @@ const storiesRouter = require('./routes/stories')({
   DEFAULT_USER
 });
 app.use('/api', requireUser);   // gates every /api/* route, not just storiesRouter
+
+// Quota enforcement (HOSTED mode only) — must be before route handlers
+if (!LOCAL_MODE) {
+  app.use('/api', async (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    try {
+      const username = getUsername(req);
+      if (username) {
+        const [used, quota] = await Promise.all([
+          getUserDirSize(username),
+          getQuotaBytes(username, STORAGE_QUOTA_MB),
+        ]);
+        if (used >= quota) {
+          return res.status(413).json({ error: 'Storage quota exceeded', used, quota });
+        }
+      }
+    } catch (_) {}
+    next();
+  });
+
+  app.use('/api', (req, res, next) => {
+    if (req.method === 'POST') {
+      const username = getUsername(req);
+      if (username) res.on('finish', () => { if (res.statusCode < 400) invalidateDirSizeCache(username); });
+    }
+    next();
+  });
+}
+
+app.get('/api/storage', async (req, res) => {
+  if (LOCAL_MODE) return res.json({ quota: null });
+  try {
+    const username = getUsername(req);
+    const [used, quota] = await Promise.all([
+      getUserDirSize(username),
+      getQuotaBytes(username, STORAGE_QUOTA_MB),
+    ]);
+    res.json({ used, quota });
+  } catch (e) {
+    res.status(500).json({ error: 'Could not measure storage' });
+  }
+});
+
 app.use('/api', storiesRouter);
 
 const createTilesRouter     = require('./routes/tiles');

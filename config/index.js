@@ -26,5 +26,6 @@ module.exports = {
   DATA_DIR,
   PUBLIC_DIR: path.join(ROOT, "public"),
   DEFAULT_USER: "anonymous",
+  STORAGE_QUOTA_MB: parseInt(process.env.STORAGE_QUOTA_MB || '50', 10),
   ensureDataDir,
 };

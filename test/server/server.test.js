@@ -1534,3 +1534,98 @@ describe('GET /discover', () => {
     assert.ok(res.text.includes('Published Stories'));
   });
 });
+
+// ============================================================================
+
+describe('Storage quota', () => {
+  let quotaRequest, quotaTmpDir;
+  const TEST_USER = 'quota-test@test.com'; // sanitizes to 'quota-test-test.com'
+
+  before(async () => {
+    quotaTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'neowriter-quota-'));
+
+    const oidcKey = require.resolve('express-openid-connect');
+    require.cache[oidcKey] = {
+      id: oidcKey, filename: oidcKey, loaded: true,
+      exports: {
+        auth: () => (req, res, next) => {
+          const email = req.headers['x-test-user'];
+          req.oidc = { isAuthenticated: () => !!email, user: email ? { email } : undefined };
+          next();
+        }
+      }
+    };
+
+    process.env.MODE = 'HOSTED';
+    process.env.DATA_DIR = quotaTmpDir;
+    process.env.CLIENT_ID = 'test-client-id';
+    process.env.ISSUER_BASE_URL = 'https://test.auth0.com';
+    process.env.SECRET = 'a-secret-long-enough-for-tests-only-32ch';
+    process.env.STORAGE_QUOTA_MB = '0'; // 0 MB → immediately over quota
+
+    const projectRoot = path.resolve(__dirname, '../..');
+    for (const key of Object.keys(require.cache)) {
+      if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
+        delete require.cache[key];
+      }
+    }
+
+    const quotaApp = require('../../server');
+    quotaRequest = require('supertest')(quotaApp);
+  });
+
+  after(async () => {
+    delete require.cache[require.resolve('express-openid-connect')];
+    delete process.env.STORAGE_QUOTA_MB;
+    await rmrf(quotaTmpDir);
+  });
+
+  it('GET /api/storage returns used + quota for authenticated user', async () => {
+    const res = await quotaRequest.get('/api/storage')
+      .set('x-test-user', TEST_USER)
+      .expect(200);
+    assert.ok(typeof res.body.used === 'number', 'used should be a number');
+    assert.equal(res.body.quota, 0); // 0 MB → 0 bytes
+  });
+
+  it('POST /api/create returns 413 when quota is 0', async () => {
+    await quotaRequest.post('/api/create')
+      .set('x-test-user', TEST_USER)
+      .set('X-Requested-With', 'XMLHttpRequest')
+      .send({ name: 'Quota Test' })
+      .expect(413);
+  });
+
+  it('413 response body has error, used, and quota fields', async () => {
+    const res = await quotaRequest.post('/api/create')
+      .set('x-test-user', TEST_USER)
+      .set('X-Requested-With', 'XMLHttpRequest')
+      .send({ name: 'Quota Test 2' })
+      .expect(413);
+    assert.equal(res.body.error, 'Storage quota exceeded');
+    assert.ok(typeof res.body.used === 'number');
+    assert.ok(typeof res.body.quota === 'number');
+  });
+});
+
+// ============================================================================
+
+describe('Storage quota — LOCAL mode has no limit', () => {
+  before(async () => {
+    process.env.MODE = 'LOCAL';
+    delete process.env.STORAGE_QUOTA_MB;
+    await setupTestEnv();
+  });
+  after(async () => { await rmrf(tmpDir); });
+
+  it('GET /api/storage returns quota: null in LOCAL mode', async () => {
+    const res = await request.get('/api/storage').expect(200);
+    assert.equal(res.body.quota, null);
+  });
+
+  it('POST /api/create succeeds in LOCAL mode regardless of disk usage', async () => {
+    const res = await request.post('/api/create').send({ name: 'Local Story' }).expect(200);
+    assert.ok(res.body.id);
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+});
