@@ -34,7 +34,7 @@ test('filter input is visible in the header', async ({ page }) => {
   await expect(page.locator('#filter-input')).toBeVisible();
 });
 
-test('filter hides stories whose name does not match', async ({ request, page }) => {
+test('filter dims stories whose name does not match', async ({ request, page }) => {
   await createStoryWithContent(request, 'Alpha Story');
   await createStoryWithContent(request, 'Beta Story');
 
@@ -44,8 +44,8 @@ test('filter hides stories whose name does not match', async ({ request, page })
   await page.fill('#filter-input', 'Alpha');
   await page.waitForTimeout(400); // debounce
 
-  await expect(page.locator('#story-list li')).toHaveCount(1);
-  await expect(page.locator('#story-list .story-name')).toHaveText('Alpha Story');
+  await expect(page.locator('#story-list li:not(.dimmed)')).toHaveCount(1);
+  await expect(page.locator('#story-list li:not(.dimmed) .story-name')).toHaveText('Alpha Story');
 });
 
 test('filter shows story whose tile content matches even if name does not', async ({ request, page }) => {
@@ -56,8 +56,8 @@ test('filter shows story whose tile content matches even if name does not', asyn
   await page.fill('#filter-input', 'forest');
   await page.waitForTimeout(400);
 
-  await expect(page.locator('#story-list li')).toHaveCount(1);
-  await expect(page.locator('#story-list .story-name')).toHaveText('Red Story');
+  await expect(page.locator('#story-list li:not(.dimmed)')).toHaveCount(1);
+  await expect(page.locator('#story-list li:not(.dimmed) .story-name')).toHaveText('Red Story');
 });
 
 test('clearing the filter restores all stories', async ({ request, page }) => {
@@ -67,21 +67,21 @@ test('clearing the filter restores all stories', async ({ request, page }) => {
   await page.goto('/');
   await page.fill('#filter-input', 'Story A');
   await page.waitForTimeout(400);
-  await expect(page.locator('#story-list li')).toHaveCount(1);
+  await expect(page.locator('#story-list li:not(.dimmed)')).toHaveCount(1);
 
   await page.fill('#filter-input', '');
   await page.waitForTimeout(400);
   await expect(page.locator('#story-list li')).toHaveCount(2);
 });
 
-test('filter with no matches shows empty story list', async ({ request, page }) => {
+test('filter with no matches dims all stories', async ({ request, page }) => {
   await createStoryWithContent(request, 'My Story');
 
   await page.goto('/');
   await page.fill('#filter-input', 'zzznomatch');
   await page.waitForTimeout(400);
 
-  await expect(page.locator('#story-list li')).toHaveCount(0);
+  await expect(page.locator('#story-list li:not(.dimmed)')).toHaveCount(0);
 });
 
 test('filter is case-insensitive', async ({ request, page }) => {
@@ -126,7 +126,7 @@ test('matching text in tile name is wrapped in <mark>', async ({ request, page }
 // Filter: binder (tiles and highlights)
 // ============================================================================
 
-test('filter hides non-matching tiles in binder', async ({ request, page }) => {
+test('filter dims non-matching tiles in binder', async ({ request, page }) => {
   const story = await createStoryWithContent(request, 'Filter Tiles Test', 'unique-keyword here');
 
   // Add a second tile with different content
@@ -145,10 +145,10 @@ test('filter hides non-matching tiles in binder', async ({ request, page }) => {
   await page.fill('#filter-input', 'unique-keyword');
   await page.waitForTimeout(400);
 
-  await expect(page.locator('#binder-tiles-list li')).toHaveCount(1);
+  await expect(page.locator('#binder-tiles-list li:not(.dimmed)')).toHaveCount(1);
 });
 
-test('filter shows "No matching tiles" placeholder when no tiles match', async ({ request, page }) => {
+test('filter dims all tiles when none match', async ({ request, page }) => {
   await createStoryWithContent(request, 'Empty Filter Test', 'some content here');
 
   await page.goto('/');
@@ -157,7 +157,7 @@ test('filter shows "No matching tiles" placeholder when no tiles match', async (
   await page.fill('#filter-input', 'zzznomatch');
   await page.waitForTimeout(400);
 
-  await expect(page.locator('#binder-tiles-list')).toContainText('No matching tiles');
+  await expect(page.locator('#binder-tiles-list li:not(.dimmed)')).toHaveCount(0);
 });
 
 test('clearing filter in binder restores all tiles', async ({ request, page }) => {
@@ -172,7 +172,7 @@ test('clearing filter in binder restores all tiles', async ({ request, page }) =
 
   await page.fill('#filter-input', 'first');
   await page.waitForTimeout(400);
-  await expect(page.locator('#binder-tiles-list li')).toHaveCount(1);
+  await expect(page.locator('#binder-tiles-list li:not(.dimmed)')).toHaveCount(1);
 
   await page.fill('#filter-input', '');
   await page.waitForTimeout(400);
@@ -187,15 +187,15 @@ test('filter persists when navigating from story list into binder', async ({ req
   await page.fill('#filter-input', 'matching-word');
   await page.waitForTimeout(400);
 
-  // Only Persist Story visible in story list
-  await expect(page.locator('#story-list li')).toHaveCount(1);
+  // Only Persist Story un-dimmed in story list
+  await expect(page.locator('#story-list li:not(.dimmed)')).toHaveCount(1);
 
   // Open the matching story
-  await page.locator('#story-list .story-name').click();
+  await page.locator('#story-list li:not(.dimmed) .story-name').click();
   await expect(page.locator('#binder')).toBeVisible();
 
-  // Tile with matching content should be shown
-  await expect(page.locator('#binder-tiles-list li')).toHaveCount(1);
+  // Tile with matching content should be un-dimmed
+  await expect(page.locator('#binder-tiles-list li:not(.dimmed)')).toHaveCount(1);
 });
 
 test('newly added tile is visible even when filter is active', async ({ request, page }) => {
