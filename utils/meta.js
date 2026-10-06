@@ -1,6 +1,15 @@
 const path = require('path');
 const fs = require('fs').promises;
 
+const _metaQueues = new Map();
+
+function withMetaLock(username, fn) {
+  const prev = _metaQueues.get(username) || Promise.resolve();
+  const next = prev.then(fn);
+  _metaQueues.set(username, next.catch(() => {}));
+  return next;
+}
+
 function createMetaHelpers(DATA_DIR) {
   function userDir(username) {
     return path.join(DATA_DIR, username);
@@ -36,7 +45,7 @@ function createMetaHelpers(DATA_DIR) {
     await fs.writeFile(tmp, JSON.stringify(meta, null, 2), 'utf8');
     await fs.rename(tmp, mf);
   }
-  return { userDir, metaFile, ensureUserData, readMeta, writeMeta };
+  return { userDir, metaFile, ensureUserData, readMeta, writeMeta, withMetaLock };
 }
 
 module.exports = { createMetaHelpers };

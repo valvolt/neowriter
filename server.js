@@ -7,7 +7,15 @@ const fsSync = require('fs');
 // --- Config ---
 const config = require('./config');
 const { PORT, DATA_DIR, PUBLIC_DIR, DEFAULT_USER, CLIENT_ID, MODE } = config;
-const { createMetaHelpers } = require('./utils/meta');
+const {
+  ensureUserData, readMeta,
+  normalizeSearch, safeJoin, atomicWrite, storyDir,
+  tileCache, highlightCache, _setCache,
+  readTileCached, readHighlightCached,
+  extractTags, stripTags,
+  readPseudonyms,
+  readTileOrder,
+} = require('./utils/server-utils');
 
 let LOCAL_MODE;
 if (MODE === 'LOCAL') {
@@ -62,7 +70,6 @@ const requireUser = makeRequireUser(LOCAL_MODE);
 
 // --- API routes (modularized) ---
 const storiesRouter = require('./routes/stories')({
-  DATA_DIR,
   getUsername,
   getDisplayName,
   DEFAULT_USER
@@ -70,21 +77,16 @@ const storiesRouter = require('./routes/stories')({
 app.use('/api', requireUser);   // gates every /api/* route, not just storiesRouter
 app.use('/api', storiesRouter);
 
+const createTilesRouter     = require('./routes/tiles');
+const createHighlightsRouter = require('./routes/highlights');
+const createPublishRouter    = require('./routes/publish');
+
+app.use(createTilesRouter({ getUsername }));
+app.use(createHighlightsRouter({ getUsername }));
+
 const dns = require('dns');
 const net = require('net');
 
-// --- Path safety helper ---
-
-// Join a user-supplied filename to a trusted base dir, rejecting any traversal.
-function safeJoin(dir, filename) {
-  const joined = path.join(dir, path.basename(filename));
-  if (!joined.startsWith(dir + path.sep) && joined !== dir) {
-    const err = new Error('invalid filename');
-    err.status = 400;
-    throw err;
-  }
-  return joined;
-}
 
 // --- SSRF guard helpers ---
 
@@ -159,43 +161,6 @@ async function validateRemoteHost(hostname) {
   return addresses;
 }
 
-// --- Per-user data helpers ---
-
-const { userDir, metaFile, ensureUserData, readMeta, writeMeta } = createMetaHelpers(DATA_DIR);
-
-function normalizeSearch(s) {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
-
-async function atomicWrite(filePath, data) {
-  const tmp = filePath + '.tmp';
-  await fs.writeFile(tmp, data, 'utf8');
-  await fs.rename(tmp, filePath);
-}
-
-// Get the base directory for a story
-function storyDir(username, id) {
-  return path.join(userDir(username), id);
-}
-
-// --- Pseudonym helpers ---
-
-const PSEUDONYMS_FILE = path.join(DATA_DIR, '_pseudonyms.json');
-
-// Extract ‡tag tokens from content, return deduplicated array
-function extractTags(content) {
-  const re = /‡([\p{L}\p{N}_-]+|:[a-z0-9_+\-]+:)/gu;
-  const set = new Set();
-  let m;
-  while ((m = re.exec(content)) !== null) set.add(m[1]);
-  return Array.from(set);
-}
-
-// Strip ‡tag tokens from content (for published pages)
-function stripTags(content) {
-  return content.replace(/[ \t]*‡(?:[\p{L}\p{N}_-]+|:[a-z0-9_+\-]+:)/gu, '').replace(/\n{3,}/g, '\n\n').trim();
-}
-
 // Deterministic color for a keyword tag — mirrors keywordStyleFor() in app.js
 const TAG_PALETTE = [
   { background: 'rgb(245, 245, 245)', color: 'rgb(51, 51, 51)' },
@@ -227,19 +192,17 @@ function tagStyleFor(keyword) {
   return `background:${s.background};color:${s.color}`;
 }
 
-async function readPseudonyms() {
-  try {
-    return JSON.parse(await fs.readFile(PSEUDONYMS_FILE, 'utf8'));
-  } catch (e) { return {}; }
-}
-
-async function writePseudonyms(ps) {
-  await atomicWrite(PSEUDONYMS_FILE, JSON.stringify(ps, null, 2));
-}
-
 let _publishedHtmlCache = null;
 let _publishedHtmlExpiry = 0;
+let _publishedStoryMap = null;
 const PUBLISHED_CACHE_TTL = 30_000;
+
+function invalidatePublishedCache() {
+  _publishedHtmlExpiry = 0;
+  _publishedStoryMap = null;
+}
+
+app.use(createPublishRouter({ getUsername, invalidatePublishedCache }));
 
 // Build the published stories HTML block (shared by GET / and GET /discover)
 async function buildPublishedStoriesHtml() {
@@ -250,6 +213,7 @@ async function buildPublishedStoriesHtml() {
   try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
   const ps = await readPseudonyms();
   const published = [];
+  const storyMap = new Map();
   for (const udir of userDirs) {
     if (udir.startsWith('_')) continue;
     const upath = path.join(DATA_DIR, udir);
@@ -261,6 +225,7 @@ async function buildPublishedStoriesHtml() {
       const meta = JSON.parse(raw);
       for (const item of meta) {
         if (!item.published) continue;
+        storyMap.set(item.id, { username: udir, item });
         // Extract tags from all tiles of this story
         let tags = [];
         try {
@@ -278,6 +243,7 @@ async function buildPublishedStoriesHtml() {
       }
     } catch (e) { /* skip */ }
   }
+  _publishedStoryMap = storyMap;
   if (published.length === 0) {
     _publishedHtmlCache = '';
     _publishedHtmlExpiry = Date.now() + PUBLISHED_CACHE_TTL;
@@ -381,7 +347,7 @@ app.get('/api/search', async (req, res) => {
             continue;
           }
           try {
-            const content = await fs.readFile(path.join(tilesDir, filename), 'utf8');
+            const content = await readTileCached(username, story.id, filename, path.join(tilesDir, filename));
             if (normalizeSearch(content).includes(q)) matchingTiles.push(filename);
           } catch (e) {}
         }
@@ -395,7 +361,7 @@ app.get('/api/search', async (req, res) => {
             continue;
           }
           try {
-            const content = await fs.readFile(path.join(highlightsDir, filename), 'utf8');
+            const content = await readHighlightCached(username, story.id, filename, path.join(highlightsDir, filename));
             if (normalizeSearch(content).includes(q)) matchingHighlights.push(filename);
           } catch (e) {}
         }
@@ -454,46 +420,6 @@ app.get('/api/story/:id', async (req, res) => {
   }
 });
 
-// --- Tile order helpers ---
-
-async function readTileOrder(username, id) {
-  const orderFile = path.join(storyDir(username, id), 'tiles', '_order.json');
-  try {
-    const raw = await fs.readFile(orderFile, 'utf8');
-    return JSON.parse(raw);
-  } catch (e) {
-    return null; // no order file yet
-  }
-}
-
-async function writeTileOrder(username, id, order) {
-  const orderFile = path.join(storyDir(username, id), 'tiles', '_order.json');
-  await atomicWrite(orderFile, JSON.stringify(order, null, 2));
-}
-
-// --- Display names helpers (_names.json) ---
-
-async function readNames(dirPath) {
-  const namesFile = path.join(dirPath, '_names.json');
-  try {
-    const raw = await fs.readFile(namesFile, 'utf8');
-    return JSON.parse(raw);
-  } catch (e) {
-    return {}; // no names file yet — fallback to filename-derived names
-  }
-}
-
-async function writeNames(dirPath, names) {
-  const namesFile = path.join(dirPath, '_names.json');
-  await atomicWrite(namesFile, JSON.stringify(names, null, 2));
-}
-
-// Get display name for a file: check _names.json, fallback to filename without .md
-function getDisplayNameForFile(names, filename) {
-  if (names && names[filename]) return names[filename];
-  return filename.replace(/\.md$/, '');
-}
-
 // --- Global Todo endpoint (all stories) ---
 
 app.get('/api/todo', async (req, res) => {
@@ -533,7 +459,9 @@ app.get('/api/todo', async (req, res) => {
 
           let content = '';
           try {
-            content = await fs.readFile(filePath, 'utf8');
+            content = dir === 'tiles'
+              ? await readTileCached(username, id, filename, filePath)
+              : await readHighlightCached(username, id, filename, filePath);
           } catch (e) {
             continue;
           }
@@ -621,7 +549,9 @@ app.get('/api/story/:id/todo', async (req, res) => {
 
         let content = '';
         try {
-          content = await fs.readFile(filePath, 'utf8');
+          content = dir === 'tiles'
+            ? await readTileCached(username, id, filename, filePath)
+            : await readHighlightCached(username, id, filename, filePath);
         } catch (e) {
           continue;
         }
@@ -686,7 +616,9 @@ app.post('/api/story/:id/todo/toggle', async (req, res) => {
 
     let content = '';
     try {
-      content = await fs.readFile(filePath, 'utf8');
+      content = directory === 'tiles'
+        ? await readTileCached(username, id, filename, filePath)
+        : await readHighlightCached(username, id, filename, filePath);
     } catch (e) {
       return res.status(404).json({ error: 'file not found' });
     }
@@ -703,539 +635,15 @@ app.post('/api/story/:id/todo/toggle', async (req, res) => {
       lines[lineIndex] = lines[lineIndex].replace(/^(\s*-\s)\[x\]/i, '$1[ ]');
     }
 
-    await atomicWrite(filePath, lines.join('\n'));
+    const newContent = lines.join('\n');
+    await atomicWrite(filePath, newContent);
+    if (directory === 'tiles') _setCache(tileCache, username, id, filename, newContent);
+    else _setCache(highlightCache, username, id, filename, newContent);
 
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'failed to toggle todo' });
-  }
-});
-
-// --- Tile endpoints ---
-
-// List tiles for a story (respects _order.json)
-app.get('/api/story/:id/tiles', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const tilesDir = path.join(storyDir(username, id), 'tiles');
-    let files = [];
-    try {
-      files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
-    } catch (e) {
-      files = [];
-    }
-
-    // Apply ordering from _order.json
-    const order = await readTileOrder(username, id);
-    let ordered;
-    if (order && Array.isArray(order)) {
-      const fileSet = new Set(files);
-      // Start with ordered entries that still exist on disk
-      ordered = order.filter(f => fileSet.has(f));
-      // Append any files not in the order (e.g. newly discovered)
-      for (const f of files) {
-        if (!order.includes(f)) ordered.push(f);
-      }
-    } else {
-      ordered = files;
-    }
-
-    // Read display names
-    const names = await readNames(tilesDir);
-    const tiles = ordered.map(f => ({ filename: f, name: getDisplayNameForFile(names, f) }));
-    res.json(tiles);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to list tiles' });
-  }
-});
-
-// Create a new tile (auto-named chapter-N, finding the next unused number)
-app.post('/api/story/:id/tiles', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const tilesDir = path.join(storyDir(username, id), 'tiles');
-    await fs.mkdir(tilesDir, { recursive: true });
-
-    // Find the next unused chapter number
-    let files = [];
-    try {
-      files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
-    } catch (e) {
-      files = [];
-    }
-    const existingSet = new Set(files);
-    let num = files.length + 1;
-    while (existingSet.has(`chapter-${num}.md`)) {
-      num++;
-    }
-    const filename = `chapter-${num}.md`;
-    const filePath = path.join(tilesDir, filename);
-
-    await fs.writeFile(filePath, '', 'utf8');
-
-    // Append to order
-    const order = (await readTileOrder(username, id)) || files;
-    order.push(filename);
-    await writeTileOrder(username, id, order);
-
-    res.json({ filename, name: `chapter-${num}` });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to create tile' });
-  }
-});
-
-// Get tile content
-app.get('/api/story/:id/tiles/:filename', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const tilesDir = path.join(storyDir(username, id), 'tiles');
-    const filePath = safeJoin(tilesDir, filename);
-    let content = '';
-    try {
-      content = await fs.readFile(filePath, 'utf8');
-    } catch (e) {
-      return res.status(404).json({ error: 'tile not found' });
-    }
-    const names = await readNames(tilesDir);
-    res.json({ filename, name: getDisplayNameForFile(names, filename), content });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to read tile' });
-  }
-});
-
-// Save tile content
-app.post('/api/story/:id/tiles/:filename/save', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  if (!req.body || typeof req.body.content !== 'string') {
-    return res.status(400).json({ error: 'content required' });
-  }
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const filePath = safeJoin(path.join(storyDir(username, id), 'tiles'), filename);
-    // Verify tile exists
-    try {
-      await fs.access(filePath);
-    } catch (e) {
-      return res.status(404).json({ error: 'tile not found' });
-    }
-    await atomicWrite(filePath, req.body.content);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to save tile' });
-  }
-});
-
-// Rename tile
-app.post('/api/story/:id/tiles/:filename/rename', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  const newName = (req.body && req.body.name) ? String(req.body.name) : undefined;
-  if (!newName) return res.status(400).json({ error: 'name required' });
-
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const tilesDir = path.join(storyDir(username, id), 'tiles');
-    const oldPath = safeJoin(tilesDir, filename);
-    try {
-      await fs.access(oldPath);
-    } catch (e) {
-      return res.status(404).json({ error: 'tile not found' });
-    }
-
-    let newFilename = sanitizeFilename(newName) + '.md';
-    // Avoid collisions
-    if (newFilename !== filename) {
-      let newPath = path.join(tilesDir, newFilename);
-      let counter = 1;
-      while (true) {
-        try {
-          await fs.access(newPath);
-          counter++;
-          newFilename = sanitizeFilename(newName) + '-' + counter + '.md';
-          newPath = path.join(tilesDir, newFilename);
-        } catch (e) {
-          break;
-        }
-      }
-      await fs.rename(oldPath, newPath);
-
-      // Update _order.json
-      const order = await readTileOrder(username, id);
-      if (order && Array.isArray(order)) {
-        const idx = order.indexOf(filename);
-        if (idx !== -1) {
-          order[idx] = newFilename;
-          await writeTileOrder(username, id, order);
-        }
-      }
-    }
-
-    // Save display name in _names.json (remove old entry if filename changed)
-    const names = await readNames(tilesDir);
-    if (newFilename !== filename) {
-      delete names[filename];
-    }
-    names[newFilename] = newName;
-    await writeNames(tilesDir, names);
-
-    res.json({ filename: newFilename, name: newName });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to rename tile' });
-  }
-});
-
-// Delete tile
-app.delete('/api/story/:id/tiles/:filename', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const tilesDir = path.join(storyDir(username, id), 'tiles');
-    const filePath = safeJoin(tilesDir, filename);
-    try {
-      await fs.unlink(filePath);
-    } catch (e) {
-      return res.status(404).json({ error: 'tile not found' });
-    }
-
-    // Remove from _order.json
-    const order = await readTileOrder(username, id);
-    if (order && Array.isArray(order)) {
-      const idx = order.indexOf(filename);
-      if (idx !== -1) {
-        order.splice(idx, 1);
-        await writeTileOrder(username, id, order);
-      }
-    }
-
-    // Remove from _names.json
-    const names = await readNames(tilesDir);
-    if (names[filename]) {
-      delete names[filename];
-      await writeNames(tilesDir, names);
-    }
-
-    res.json({ ok: true, filename });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to delete tile' });
-  }
-});
-
-// Reorder tiles
-app.post('/api/story/:id/tiles/reorder', async (req, res) => {
-  const id = req.params.id;
-  const order = req.body && req.body.order;
-  if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
-
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const tilesDir = path.join(storyDir(username, id), 'tiles');
-    let actualFiles;
-    try {
-      actualFiles = new Set((await fs.readdir(tilesDir)).filter(f => f.endsWith('.md')));
-    } catch (e) {
-      actualFiles = new Set();
-    }
-    const unknown = order.filter(f => !actualFiles.has(f));
-    if (unknown.length > 0) {
-      return res.status(400).json({ error: `unknown tile(s) in order: ${unknown.join(', ')}` });
-    }
-
-    await writeTileOrder(username, id, order);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to reorder tiles' });
-  }
-});
-
-// --- Highlight endpoints ---
-
-// List highlights for a story (sorted alphabetically by display name)
-app.get('/api/story/:id/highlights', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    let files = [];
-    try {
-      files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
-    } catch (e) {
-      files = [];
-    }
-    // Read display names
-    const names = await readNames(highlightsDir);
-    const highlights = files.map(f => ({ filename: f, name: getDisplayNameForFile(names, f) }));
-    // Sort alphabetically by display name
-    highlights.sort((a, b) => a.name.localeCompare(b.name));
-    res.json(highlights);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to list highlights' });
-  }
-});
-
-// Create a new highlight (auto-named highlight-N)
-app.post('/api/story/:id/highlights', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    await fs.mkdir(highlightsDir, { recursive: true });
-
-    let files = [];
-    try {
-      files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
-    } catch (e) {
-      files = [];
-    }
-    const existingSet = new Set(files);
-    let num = files.length + 1;
-    while (existingSet.has(`highlight-${num}.md`)) {
-      num++;
-    }
-    const filename = `highlight-${num}.md`;
-    const filePath = path.join(highlightsDir, filename);
-
-    await fs.writeFile(filePath, '', 'utf8');
-    res.json({ filename, name: `highlight-${num}` });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to create highlight' });
-  }
-});
-
-// Get highlight content
-app.get('/api/story/:id/highlights/:filename', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    const filePath = safeJoin(highlightsDir, filename);
-    let content = '';
-    try {
-      content = await fs.readFile(filePath, 'utf8');
-    } catch (e) {
-      return res.status(404).json({ error: 'highlight not found' });
-    }
-    const names = await readNames(highlightsDir);
-    res.json({ filename, name: getDisplayNameForFile(names, filename), content });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to read highlight' });
-  }
-});
-
-// Save highlight content
-app.post('/api/story/:id/highlights/:filename/save', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  if (!req.body || typeof req.body.content !== 'string') {
-    return res.status(400).json({ error: 'content required' });
-  }
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const filePath = safeJoin(path.join(storyDir(username, id), 'highlights'), filename);
-    try {
-      await fs.access(filePath);
-    } catch (e) {
-      return res.status(404).json({ error: 'highlight not found' });
-    }
-    await atomicWrite(filePath, req.body.content);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to save highlight' });
-  }
-});
-
-// Rename highlight
-app.post('/api/story/:id/highlights/:filename/rename', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  const newName = (req.body && req.body.name) ? String(req.body.name) : undefined;
-  if (!newName) return res.status(400).json({ error: 'name required' });
-
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    const oldPath = safeJoin(highlightsDir, filename);
-    try {
-      await fs.access(oldPath);
-    } catch (e) {
-      return res.status(404).json({ error: 'highlight not found' });
-    }
-
-    // Get the old display name from _names.json (fallback to filename without .md)
-    const names = await readNames(highlightsDir);
-    const oldName = getDisplayNameForFile(names, filename);
-
-    let newFilename = sanitizeFilename(newName) + '.md';
-    if (newFilename !== filename) {
-      let newPath = path.join(highlightsDir, newFilename);
-      let counter = 1;
-      while (true) {
-        try {
-          await fs.access(newPath);
-          counter++;
-          newFilename = sanitizeFilename(newName) + '-' + counter + '.md';
-          newPath = path.join(highlightsDir, newFilename);
-        } catch (e) {
-          break;
-        }
-      }
-      await fs.rename(oldPath, newPath);
-    }
-
-    // Save display name in _names.json (remove old entry if filename changed)
-    if (newFilename !== filename) {
-      delete names[filename];
-    }
-    names[newFilename] = newName;
-    await writeNames(highlightsDir, names);
-
-    // Propagate rename into all tile and highlight files: replace oldName with newName (case-insensitive, Unicode-aware)
-    const tilesDir = path.join(storyDir(username, id), 'tiles');
-    let tileFiles = [];
-    try {
-      tileFiles = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
-    } catch (e) {
-      tileFiles = [];
-    }
-
-    let highlightFiles = [];
-    try {
-      highlightFiles = (await fs.readdir(highlightsDir))
-        .filter(f => f.endsWith('.md'));
-    } catch (e) {
-      highlightFiles = [];
-    }
-
-    const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const replaceRegex = new RegExp(escapedOld, 'giu');
-
-    const replaceInFile = async (filePath) => {
-      try {
-        const content = await fs.readFile(filePath, 'utf8');
-        if (!replaceRegex.test(content)) return;
-        replaceRegex.lastIndex = 0;
-        const updated = content.replace(replaceRegex, (match) => {
-          if (match === match.toUpperCase()) return newName.toUpperCase();
-          if (match[0] === match[0].toUpperCase()) {
-            return newName.charAt(0).toUpperCase() + newName.slice(1);
-          }
-          return newName.toLowerCase();
-        });
-        if (updated !== content) {
-          await atomicWrite(filePath, updated);
-        }
-      } catch (e) {
-        console.error(`failed to update file ${filePath}`, e);
-      }
-    };
-
-    await Promise.all([
-      ...tileFiles.map(f => replaceInFile(path.join(tilesDir, f))),
-      ...highlightFiles.map(f => replaceInFile(path.join(highlightsDir, f))),
-    ]);
-
-    res.json({ filename: newFilename, name: newName });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to rename highlight' });
-  }
-});
-
-// Delete highlight
-app.delete('/api/story/:id/highlights/:filename', async (req, res) => {
-  const id = req.params.id;
-  const filename = req.params.filename;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'story not found' });
-
-    const highlightsDir = path.join(storyDir(username, id), 'highlights');
-    const filePath = safeJoin(highlightsDir, filename);
-    try {
-      await fs.unlink(filePath);
-    } catch (e) {
-      return res.status(404).json({ error: 'highlight not found' });
-    }
-
-    // Remove from _names.json
-    const names = await readNames(highlightsDir);
-    if (names[filename]) {
-      delete names[filename];
-      await writeNames(highlightsDir, names);
-    }
-
-    res.json({ ok: true, filename });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to delete highlight' });
   }
 });
 
@@ -1446,91 +854,6 @@ app.post('/api/story/:id/pictures', async (req, res) => {
 
 // --- Publish feature ---
 
-// Toggle publish state for a story
-app.post('/api/story/:id/publish', async (req, res) => {
-  const id = req.params.id;
-  const published = !!(req.body && req.body.published);
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'not found' });
-    item.published = published;
-    await writeMeta(username, meta);
-    _publishedHtmlExpiry = 0;
-    res.json({ id, published });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to update publish state' });
-  }
-});
-
-// Get publish state for a story
-app.get('/api/story/:id/published', async (req, res) => {
-  const id = req.params.id;
-  try {
-    const username = getUsername(req);
-    const meta = await readMeta(username);
-    const item = meta.find(m => m.id === id);
-    if (!item) return res.status(404).json({ error: 'not found' });
-    res.json({ id, published: !!item.published });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to read publish state' });
-  }
-});
-
-// --- Public routes (no authentication required) ---
-
-// --- Pseudonym endpoints ---
-
-app.get('/api/pseudonym', async (req, res) => {
-  try {
-    const username = getUsername(req);
-    const ps = await readPseudonyms();
-    res.json({ pseudonym: ps[username] || null });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to read pseudonym' });
-  }
-});
-
-app.post('/api/pseudonym', async (req, res) => {
-  const pseudonym = String((req.body && req.body.pseudonym) || '').trim();
-  if (!/^[A-Za-z0-9]{1,15}$/.test(pseudonym)) {
-    return res.status(400).json({ error: 'Pseudonym must be 1–15 alphanumeric characters.' });
-  }
-  try {
-    const username = getUsername(req);
-    const ps = await readPseudonyms();
-    const lc = pseudonym.toLowerCase();
-    for (const [key, val] of Object.entries(ps)) {
-      if (key !== username && val.toLowerCase() === lc) {
-        return res.status(409).json({ error: 'taken' });
-      }
-    }
-    ps[username] = pseudonym;
-    await writePseudonyms(ps);
-    res.json({ pseudonym });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to save pseudonym' });
-  }
-});
-
-app.delete('/api/pseudonym', async (req, res) => {
-  try {
-    const username = getUsername(req);
-    const ps = await readPseudonyms();
-    delete ps[username];
-    await writePseudonyms(ps);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'failed to delete pseudonym' });
-  }
-});
-
 // --- Public routes (no authentication required) (continued) ---
 
 // List all published stories across all users
@@ -1568,21 +891,12 @@ app.get('/public/stories', async (req, res) => {
   }
 });
 
-// Find a published story by UUID alone (scans all user dirs)
+// Find a published story by UUID — uses the shared published-story index (built by buildPublishedStoriesHtml)
 async function findPublishedStory(storyId) {
-  const safeId = path.basename(storyId);
-  let userDirs = [];
-  try { userDirs = await fs.readdir(DATA_DIR); } catch (e) {}
-  for (const udir of userDirs) {
-    if (udir.startsWith('_')) continue;
-    try {
-      const mf = path.join(DATA_DIR, udir, 'metadata.json');
-      const meta = JSON.parse(await fs.readFile(mf, 'utf8'));
-      const item = meta.find(m => m.id === safeId);
-      if (item && item.published) return { username: udir, item };
-    } catch (e) { /* skip */ }
+  if (!_publishedStoryMap || Date.now() > _publishedHtmlExpiry) {
+    await buildPublishedStoriesHtml();
   }
-  return null;
+  return _publishedStoryMap.get(path.basename(storyId)) || null;
 }
 
 // Read a published story by UUID (no username in URL)
