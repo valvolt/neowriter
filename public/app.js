@@ -216,6 +216,9 @@
   let highlightsRenderEnabled = true;
   const toggleHighlightsEl = $('toggle-highlights');
   const btnExportStory = $('btn-export-story');
+  const btnImport = $('btn-import');
+  const btnImportBinder = $('btn-import-binder');
+  const importFileInput = $('import-file-input');
 
   // Publish toggle
   const togglePublishEl = $('toggle-publish');
@@ -1124,6 +1127,38 @@
       if (currentStoryId) window.location.href = `/api/story/${currentStoryId}/export`;
     });
   }
+
+  async function importZip(storyId = null) {
+    if (!importFileInput) return;
+    importFileInput.value = '';
+    importFileInput.onchange = async () => {
+      const file = importFileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(',')[1];
+        try {
+          const body = { data: base64 };
+          if (storyId) body.storyId = storyId;
+          const res = await api('/api/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          if (!res?.id) throw new Error(res?.error || 'import failed');
+          await loadList();
+          showBinder(res.id, res.name);
+        } catch (e) {
+          alert('Import failed: ' + (e.message || 'unknown error'));
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+    importFileInput.click();
+  }
+
+  if (btnImport) btnImport.addEventListener('click', () => importZip(null));
+  if (btnImportBinder) btnImportBinder.addEventListener('click', () => importZip(currentStoryId));
 
   async function showStoryList() {
     clearTimeout(saveTimer);

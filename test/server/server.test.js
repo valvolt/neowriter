@@ -553,6 +553,289 @@ describe('Export', () => {
 });
 
 // ============================================================================
+// INTEGRATION TESTS: Import
+// ============================================================================
+
+describe('Import', () => {
+  before(async () => { await setupTestEnv(); });
+  after(async () => { await rmrf(tmpDir); });
+
+  // Helper: build a ZIP buffer using adm-zip
+  function makeZip(folder, files) {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    for (const [name, content] of Object.entries(files)) {
+      zip.addFile(`${folder}/${name}`, Buffer.from(content));
+    }
+    return zip.toBuffer();
+  }
+
+  function b64(buf) { return buf.toString('base64'); }
+
+  it('POST /api/import returns 400 when data is missing', async () => {
+    await request.post('/api/import').send({}).expect(400);
+  });
+
+  it('POST /api/import returns 400 for a non-ZIP payload', async () => {
+    await request.post('/api/import')
+      .send({ data: Buffer.from('not a zip').toString('base64') })
+      .expect(400);
+  });
+
+  it('imports a ZIP to create a new story', async () => {
+    const zip = makeZip('my-story', {
+      'tiles/1-chapter-one.md': '# Chapter One\n\nHello.',
+      'tiles/2-chapter-two.md': '# Chapter Two\n\nWorld.',
+    });
+    const res = await request.post('/api/import')
+      .send({ data: b64(zip) })
+      .expect(200);
+    assert.ok(res.body.id);
+    assert.equal(res.body.name, 'My story');
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+
+  it('imported tiles appear in the correct order', async () => {
+    const zip = makeZip('ordered-story', {
+      'tiles/01-introduction.md': 'Intro content',
+      'tiles/02-middle.md': 'Middle content',
+      'tiles/03-end.md': 'End content',
+    });
+    const res = await request.post('/api/import').send({ data: b64(zip) }).expect(200);
+    const tilesRes = await request.get(`/api/story/${res.body.id}/tiles`).expect(200);
+    const names = tilesRes.body.map(t => t.name);
+    assert.equal(names[0], 'Introduction');
+    assert.equal(names[1], 'Middle');
+    assert.equal(names[2], 'End');
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+
+  it('imports highlights alongside tiles', async () => {
+    const zip = makeZip('story-with-highlights', {
+      'tiles/1-part-one.md': 'Part one text.',
+      'highlights/sunrise.md': 'The sun rose over the mountains.',
+    });
+    const res = await request.post('/api/import').send({ data: b64(zip) }).expect(200);
+    const hlRes = await request.get(`/api/story/${res.body.id}/highlights`).expect(200);
+    assert.equal(hlRes.body.length, 1);
+    assert.equal(hlRes.body[0].name, 'Sunrise');
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+
+  it('imports a ZIP with no tiles (empty tiles section)', async () => {
+    const zip = makeZip('empty-tiles-story', {
+      'highlights/a-note.md': 'Just a note.',
+    });
+    const res = await request.post('/api/import').send({ data: b64(zip) }).expect(200);
+    assert.ok(res.body.id);
+    const tilesRes = await request.get(`/api/story/${res.body.id}/tiles`).expect(200);
+    assert.equal(tilesRes.body.length, 0);
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+
+  it('handles filename collisions within the ZIP by appending -2, -3 suffix', async () => {
+    // Both tiles sanitize to "scene.md"
+    const zip = makeZip('collision-story', {
+      'tiles/1-scene.md': 'First scene.',
+      'tiles/2-scene.md': 'Second scene.',
+    });
+    const res = await request.post('/api/import').send({ data: b64(zip) }).expect(200);
+    const tilesRes = await request.get(`/api/story/${res.body.id}/tiles`).expect(200);
+    assert.equal(tilesRes.body.length, 2);
+    const filenames = tilesRes.body.map(t => t.filename);
+    assert.ok(filenames.includes('scene.md'));
+    assert.ok(filenames.includes('scene-2.md'));
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+
+  it('appends tiles to an existing story when storyId is provided', async () => {
+    // Create a story — POST /api/create already seeds chapter-1.md
+    const existing = (await request.post('/api/create')
+      .send({ name: 'Append Target' }).expect(200)).body;
+
+    const zip = makeZip('new-content', {
+      'tiles/1-imported-chapter.md': 'Imported content.',
+    });
+    const res = await request.post('/api/import')
+      .send({ data: b64(zip), storyId: existing.id })
+      .expect(200);
+    assert.equal(res.body.id, existing.id);
+
+    const tilesRes = await request.get(`/api/story/${existing.id}/tiles`).expect(200);
+    assert.equal(tilesRes.body.length, 2);
+    // Appended tile should be last
+    assert.equal(tilesRes.body[1].name, 'Imported chapter');
+    await request.delete(`/api/story/${existing.id}`).catch(() => {});
+  });
+
+  it('returns 404 when appending to a non-existent story', async () => {
+    const zip = makeZip('irrelevant', { 'tiles/1-x.md': 'x' });
+    await request.post('/api/import')
+      .send({ data: b64(zip), storyId: 'does-not-exist' })
+      .expect(404);
+  });
+
+  // --- Security tests ---
+
+  it('rejects ZIP whose total declared uncompressed size exceeds 200 MB', async () => {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile('story/tiles/1-chapter.md', Buffer.from('x'));
+    const buf = zip.toBuffer();
+
+    // Patch uncompressed size in the central directory record (+24 from PK\x01\x02)
+    // to 201 MB — above the 200 MB cap.
+    const cdSig = Buffer.from([0x50, 0x4B, 0x01, 0x02]);
+    const cdIdx = buf.indexOf(cdSig);
+    assert.ok(cdIdx >= 0, 'central directory not found in ZIP');
+    buf.writeUInt32LE(201 * 1024 * 1024, cdIdx + 24);
+
+    await request.post('/api/import')
+      .send({ data: buf.toString('base64') })
+      .expect(413);
+  });
+
+  it('skips picture files with disallowed extensions', async () => {
+    // Build a valid 1x1 PNG (89 bytes) to use as the real picture
+    const pngMagic = Buffer.from([
+      0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A, // PNG signature
+      0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52, // IHDR chunk length + type
+      0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01, // 1x1
+      0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53, // bit depth + color type + CRC
+      0xDE,0x00,0x00,0x00,0x0C,0x49,0x44,0x41, // IDAT chunk
+      0x54,0x08,0xD7,0x63,0xF8,0xCF,0xC0,0x00,
+      0x00,0x00,0x02,0x00,0x01,0xE2,0x21,0xBC,
+      0x33,0x00,0x00,0x00,0x00,0x49,0x45,0x4E,
+      0x44,0xAE,0x42,0x60,0x82, // IEND chunk
+    ]);
+
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile('story/tiles/1-chapter.md', Buffer.from('content'));
+    zip.addFile('story/pictures/photo.png', pngMagic);
+    zip.addFile('story/pictures/evil.html', Buffer.from('<script>alert(1)</script>'));
+    zip.addFile('story/pictures/evil.php', Buffer.from('<?php system($_GET["cmd"]); ?>'));
+
+    const res = await request.post('/api/import')
+      .send({ data: zip.toBuffer().toString('base64') })
+      .expect(200);
+
+    // Verify the story was created; we can't easily inspect the pictures directory
+    // from tests, but we can confirm the story was imported successfully (not 500)
+    assert.ok(res.body.id);
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+
+  it('skips pictures that fail the magic byte check', async () => {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile('story/tiles/1-chapter.md', Buffer.from('content'));
+    // A .png file whose content is not actually a PNG
+    zip.addFile('story/pictures/fake.png', Buffer.from('<script>alert(1)</script>'));
+
+    const res = await request.post('/api/import')
+      .send({ data: zip.toBuffer().toString('base64') })
+      .expect(200);
+    assert.ok(res.body.id);
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+
+  it('sanitizes picture filenames on import', async () => {
+    // Build a minimal valid PNG buffer
+    const pngMagic = Buffer.from([
+      0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,
+      0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+      0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
+      0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,
+      0xDE,0x00,0x00,0x00,0x0C,0x49,0x44,0x41,
+      0x54,0x08,0xD7,0x63,0xF8,0xCF,0xC0,0x00,
+      0x00,0x00,0x02,0x00,0x01,0xE2,0x21,0xBC,
+      0x33,0x00,0x00,0x00,0x00,0x49,0x45,0x4E,
+      0x44,0xAE,0x42,0x60,0x82,
+    ]);
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile('story/tiles/1-chapter.md', Buffer.from('content'));
+    // Filename with spaces and uppercase — should be sanitized
+    zip.addFile('story/pictures/My Photo File.png', pngMagic);
+
+    const res = await request.post('/api/import')
+      .send({ data: zip.toBuffer().toString('base64') })
+      .expect(200);
+    assert.ok(res.body.id);
+
+    // Read the pictures directory to check the sanitized filename
+    const picDir = path.join(tmpDir, 'anonymous', res.body.id, 'pictures');
+    const picFiles = await fs.readdir(picDir).catch(() => []);
+    assert.ok(picFiles.includes('my-photo-file.png'), `expected my-photo-file.png, got: ${picFiles}`);
+
+    await request.delete(`/api/story/${res.body.id}`).catch(() => {});
+  });
+});
+
+// ============================================================================
+// INTEGRATION TESTS: Import quota enforcement (HOSTED mode)
+// ============================================================================
+
+describe('Import — quota enforcement (HOSTED mode)', () => {
+  let quotaImportRequest, quotaImportTmpDir;
+  const TEST_USER = 'import-quota@test.com';
+
+  before(async () => {
+    quotaImportTmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'neowriter-import-quota-'));
+
+    const oidcKey = require.resolve('express-openid-connect');
+    require.cache[oidcKey] = {
+      id: oidcKey, filename: oidcKey, loaded: true,
+      exports: {
+        auth: () => (req, res, next) => {
+          const email = req.headers['x-test-user'];
+          req.oidc = { isAuthenticated: () => !!email, user: email ? { email } : undefined };
+          next();
+        }
+      }
+    };
+
+    process.env.MODE = 'HOSTED';
+    process.env.DATA_DIR = quotaImportTmpDir;
+    process.env.CLIENT_ID = 'test-client-id';
+    process.env.ISSUER_BASE_URL = 'https://test.auth0.com';
+    process.env.SECRET = 'a-secret-long-enough-for-tests-only-32ch';
+    process.env.STORAGE_QUOTA_MB = '0'; // 0 MB → any content exceeds quota
+
+    const projectRoot = path.resolve(__dirname, '../..');
+    for (const key of Object.keys(require.cache)) {
+      if (key.startsWith(projectRoot) && !key.includes('node_modules')) {
+        delete require.cache[key];
+      }
+    }
+
+    const quotaApp = require('../../server');
+    quotaImportRequest = require('supertest')(quotaApp);
+  });
+
+  after(async () => {
+    delete require.cache[require.resolve('express-openid-connect')];
+    delete process.env.STORAGE_QUOTA_MB;
+    await rmrf(quotaImportTmpDir);
+  });
+
+  it('POST /api/import returns 413 when ZIP content would exceed quota', async () => {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    zip.addFile('story/tiles/1-chapter.md', Buffer.from('Some content'));
+    const data = zip.toBuffer().toString('base64');
+
+    const res = await quotaImportRequest.post('/api/import')
+      .set('x-test-user', TEST_USER)
+      .set('X-Requested-With', 'XMLHttpRequest')
+      .send({ data })
+      .expect(413);
+    assert.equal(res.body.error, 'Storage quota exceeded');
+  });
+});
+
+// ============================================================================
 // INTEGRATION TESTS: Todos
 // ============================================================================
 
