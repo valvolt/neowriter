@@ -21,6 +21,8 @@ I will turn off the registration option if I see abuse.
 - **Content sync** — Double click anywhere on your text to auto-scroll the rendering page to your current location
 - **TODO-list** — All ☐ and ☑ spread through story tiles are collected in a single, editable TODO list
 - **Auto-save** — All changes are saved automatically as you type
+- **Export** — Download any story as a ZIP archive containing tiles, highlights, and pictures
+- **Import** — Upload a ZIP to create a new story or append tiles/highlights/pictures into an existing one
 - **Publishing** — Make your stories publicly readable via a shareable URL
 - **Mobile** — Responsive layout with bottom tab navigation for phones (≤ 600 px)
 
@@ -57,6 +59,25 @@ Edit `Caddyfile` and replace `yourdomain.com` with your actual domain or hostnam
 **No domain?** Use [sslip.io](https://sslip.io) — a free DNS service that maps `<ip>.sslip.io` to your IP. If your server is at `1.2.3.4`, set the Caddyfile hostname to `1.2.3.4.sslip.io` and you get a trusted Let's Encrypt certificate with no domain purchase.
 
 > Ports 80 and 443 must be reachable from the internet (needed for Let's Encrypt's HTTP challenge). Also update your Auth0 application's allowed callback and logout URLs to use `https://`.
+
+## Storage quota (HOSTED mode)
+
+In HOSTED mode each user is limited to **50 MB** by default. Three levels of override, from broadest to narrowest:
+
+1. **Server default** — `50 MB`. No configuration needed.
+2. **`.env` override** — set `STORAGE_QUOTA_MB=200` to change the default for all users.
+3. **Per-user override** — create or edit `data/_quota.json`:
+
+```json
+{
+  "alice-example.com": 200,
+  "bob-example.com": 10
+}
+```
+
+Keys are the sanitized form of the user's email: `@` becomes `-`, everything is lowercased (e.g. `cedric.hebert@pm.me` → `cedric.hebert-pm.me`). Values are in MB. The file is re-read every 60 seconds — no restart needed. Missing entries fall back to the `.env` default.
+
+The remaining quota is displayed next to the user's name in the header. Writes are blocked with HTTP 413 once the limit is reached.
 
 ## Project layout
 

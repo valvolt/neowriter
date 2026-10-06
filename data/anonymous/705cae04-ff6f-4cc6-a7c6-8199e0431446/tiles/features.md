@@ -61,6 +61,18 @@ The left panel shows all your stories with at-a-glance status information.
 * **Published-first sort** — published stories float to the top of the list; within each group, stories are sorted alphabetically. A small green indicator appears in front of published story names
 
 
+## Export
+Click the **Export** button in the header to download the current story as a ZIP archive containing all tiles, highlights, and pictures. Use it as a backup or to move a story to another instance.
+
+
+## Import
+Click the **Import** button on the story list to create a new story from a ZIP file exported by Neowriter (or a compatible ZIP with the same folder structure). To add content to an existing story instead, open it and click **Import ↑** in the binder header — tiles and highlights are appended, pictures are merged, tile order is preserved.
+
+
+## Storage quota
+On hosted instances each account has a storage limit (shown next to your name in the header). When you are close to the limit the indicator turns orange, and red when you are above 90 %. Writes are blocked once the limit is reached; export your stories and delete old ones to free up space.
+
+
 ## Publishing
 Click the **Publish** button in the header to make your story publicly readable via a shareable URL, without requiring a login. Works in both local and hosted mode.
 
