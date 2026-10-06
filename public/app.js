@@ -37,6 +37,7 @@
   const openStoryEl = $('open-story-name');
   const userInfoEl = $('user-info');
   const filterInputEl = $('filter-input');
+  const filterClearEl = $('filter-clear');
 
   // --- User info + pseudonym UI ---
   let userPseudonym = null; // loaded from server below
@@ -2338,8 +2339,19 @@
       const hasValue = filterInputEl.value.trim().length > 0;
       filterInputEl.style.background = hasValue ? '#f0c000' : '';
       filterInputEl.style.color = hasValue ? '#000' : '';
+      if (filterClearEl) filterClearEl.style.display = hasValue ? '' : 'none';
       clearTimeout(filterDebounce);
       filterDebounce = setTimeout(() => applyFilter(filterInputEl.value), 300);
+    });
+  }
+  if (filterClearEl) {
+    filterClearEl.addEventListener('click', () => {
+      filterInputEl.value = '';
+      filterInputEl.style.background = '';
+      filterInputEl.style.color = '';
+      filterClearEl.style.display = 'none';
+      filterInputEl.focus();
+      applyFilter('');
     });
   }
   btnAddTile.addEventListener('click', addTile);
