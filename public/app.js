@@ -203,6 +203,7 @@
   // Toggle for highlight rendering in preview
   let highlightsRenderEnabled = true;
   const toggleHighlightsEl = $('toggle-highlights');
+  const btnExportStory = $('btn-export-story');
 
   // Publish toggle
   const togglePublishEl = $('toggle-publish');
@@ -1106,6 +1107,11 @@
   if (togglePublishEl) {
     togglePublishEl.addEventListener('click', togglePublish);
   }
+  if (btnExportStory) {
+    btnExportStory.addEventListener('click', () => {
+      if (currentStoryId) window.location.href = `/api/story/${currentStoryId}/export`;
+    });
+  }
 
   async function showStoryList() {
     clearTimeout(saveTimer);
@@ -1134,8 +1140,9 @@
     if (currentName) currentName.textContent = '';
     updateStats('');
     if (preview) preview.innerHTML = '';
-    // Hide publish button when no story is open
+    // Hide publish + export buttons when no story is open
     if (togglePublishEl) togglePublishEl.style.display = 'none';
+    if (btnExportStory) btnExportStory.style.display = 'none';
     storyPublished = false;
     refreshGlobalTodoBadge();
     updateEditorRuler();
@@ -1157,10 +1164,13 @@
     setMobileTab('files');
     applyHighlight(binderStoryName, storyName, filterQuery);
 
-    // Show publish button when a story is open
+    // Show publish + export buttons when a story is open
     if (togglePublishEl) {
       togglePublishEl.style.display = 'inline-block';
       await fetchPublishState();
+    }
+    if (btnExportStory) {
+      btnExportStory.style.display = 'inline-block';
     }
 
     await fetchAllTilesContent();
@@ -1539,6 +1549,12 @@
             const style = keywordStyleFor(kw);
             pill.style.background = style.background;
             pill.style.color = style.color;
+            pill.style.cursor = 'pointer';
+            pill.addEventListener('click', ev => {
+              ev.stopPropagation();
+              const name = li.querySelector('.story-name')?.textContent || '';
+              showBinder(id, name);
+            });
             tagsEl.appendChild(pill);
           }
         }

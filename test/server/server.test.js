@@ -426,6 +426,133 @@ describe('Highlights', () => {
 });
 
 // ============================================================================
+// INTEGRATION TESTS: Export
+// ============================================================================
+
+// Minimal ZIP reader: scan local-file-header signatures (PK\x03\x04) to list entries.
+function listZipEntries(buf) {
+  const sig = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+  const entries = [];
+  let pos = 0;
+  for (;;) {
+    const i = buf.indexOf(sig, pos);
+    if (i < 0) break;
+    const fnLen = buf.readUInt16LE(i + 26);
+    entries.push(buf.toString('utf8', i + 30, i + 30 + fnLen));
+    pos = i + 4;
+  }
+  return entries;
+}
+
+async function exportZip(storyId) {
+  const res = await request
+    .get(`/api/story/${storyId}/export`)
+    .buffer(true)
+    .parse((res, cb) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
+  return res;
+}
+
+describe('Export', () => {
+  let storyId;
+
+  before(async () => {
+    await setupTestEnv();
+    const story = (await request.post('/api/create')
+      .send({ name: 'Export Test' }).expect(200)).body;
+    storyId = story.id;
+  });
+
+  after(async () => { await rmrf(tmpDir); });
+
+  it('GET /api/story/:id/export returns 404 for non-existent story', async () => {
+    await request.get('/api/story/non-existent-id/export').expect(404);
+  });
+
+  it('GET /api/story/:id/export returns 200 with zip content-type and attachment header', async () => {
+    const res = await exportZip(storyId);
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-type'].includes('zip'));
+    assert.ok(res.headers['content-disposition'].includes('.zip'));
+    assert.ok(res.headers['content-disposition'].includes('attachment'));
+  });
+
+  it('GET /api/story/:id/export filename uses sanitized story name', async () => {
+    const res = await exportZip(storyId);
+    // Story is "Export Test" → "export-test"
+    assert.ok(res.headers['content-disposition'].includes('export-test.zip'));
+  });
+
+  it('GET /api/story/:id/export ZIP contains tiles with index prefix and display name', async () => {
+    // Rename the default tile so it has a meaningful display name
+    await request.post(`/api/story/${storyId}/tiles/chapter-1.md/rename`)
+      .send({ name: 'Prologue' }).expect(200);
+
+    const res = await exportZip(storyId);
+    const entries = listZipEntries(res.body);
+
+    // Should have exactly one tile entry: 1-prologue.md (no padding needed for 1 tile)
+    const tileEntries = entries.filter(e => e.includes('/tiles/'));
+    assert.equal(tileEntries.length, 1);
+    assert.ok(tileEntries[0].endsWith('/tiles/1-prologue.md'), `unexpected: ${tileEntries[0]}`);
+  });
+
+  it('GET /api/story/:id/export ZIP omits internal metadata files', async () => {
+    const res = await exportZip(storyId);
+    const entries = listZipEntries(res.body);
+    assert.ok(!entries.some(e => e.includes('_order.json')), '_order.json must not appear in export');
+    assert.ok(!entries.some(e => e.includes('_names.json')), '_names.json must not appear in export');
+  });
+
+  it('GET /api/story/:id/export multiple tiles get zero-padded prefixes when count >= 10', async () => {
+    // Add 9 more tiles (we already have 1 from the rename test = prologue.md)
+    for (let i = 0; i < 9; i++) {
+      await request.post(`/api/story/${storyId}/tiles`).send({}).expect(200);
+    }
+
+    const res = await exportZip(storyId);
+    const entries = listZipEntries(res.body);
+    const tileEntries = entries.filter(e => e.includes('/tiles/')).sort();
+
+    assert.equal(tileEntries.length, 10);
+    // First tile must have a two-digit prefix (01-)
+    assert.ok(tileEntries[0].includes('/tiles/01-'), `expected 01- prefix, got: ${tileEntries[0]}`);
+    // Last tile must also have two-digit prefix (10-)
+    assert.ok(tileEntries[9].includes('/tiles/10-'), `expected 10- prefix, got: ${tileEntries[9]}`);
+  });
+
+  it('GET /api/story/:id/export includes highlights with display name as filename', async () => {
+    // Create a highlight and give it a display name
+    await request.post(`/api/story/${storyId}/highlights`).send({}).expect(200);
+    await request.post(`/api/story/${storyId}/highlights/highlight-1.md/rename`)
+      .send({ name: 'Elena' }).expect(200);
+
+    const res = await exportZip(storyId);
+    const entries = listZipEntries(res.body);
+    const hlEntries = entries.filter(e => e.includes('/highlights/'));
+
+    assert.equal(hlEntries.length, 1);
+    assert.ok(hlEntries[0].endsWith('/highlights/elena.md'), `unexpected: ${hlEntries[0]}`);
+  });
+
+  it('GET /api/story/:id/export story with no highlights has no highlights/ entries', async () => {
+    // Create a fresh story with only tiles
+    const bare = (await request.post('/api/create')
+      .send({ name: 'No Highlights' }).expect(200)).body;
+    try {
+      const res = await exportZip(bare.id);
+      const entries = listZipEntries(res.body);
+      assert.ok(!entries.some(e => e.includes('/highlights/')));
+    } finally {
+      await request.delete(`/api/story/${bare.id}`).catch(() => {});
+    }
+  });
+});
+
+// ============================================================================
 // INTEGRATION TESTS: Todos
 // ============================================================================
 

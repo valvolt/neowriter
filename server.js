@@ -80,6 +80,7 @@ app.use('/api', storiesRouter);
 const createTilesRouter     = require('./routes/tiles');
 const createHighlightsRouter = require('./routes/highlights');
 const createPublishRouter    = require('./routes/publish');
+const createExportRouter     = require('./routes/export');
 
 app.use(createTilesRouter({ getUsername }));
 app.use(createHighlightsRouter({ getUsername }));
@@ -203,6 +204,7 @@ function invalidatePublishedCache() {
 }
 
 app.use(createPublishRouter({ getUsername, invalidatePublishedCache }));
+app.use(createExportRouter({ getUsername }));
 
 // Build the published stories HTML block (shared by GET / and GET /discover)
 async function buildPublishedStoriesHtml() {
