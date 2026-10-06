@@ -169,6 +169,8 @@
   // when no filter is active.
   let filterQuery = '';
   let filterResults = null;
+  // Filename of a tile that was just added — always shown regardless of active filter.
+  let justAddedTileFilename = null;
 
   // Global todo active state (on story list page)
   let globalTodoActive = false;
@@ -1473,6 +1475,7 @@
 
   async function applyFilter(q) {
     filterQuery = normalizeSearch(q.trim());
+    justAddedTileFilename = null;
     if (currentStoryId) {
       // In binder view: fetch fresh results then re-render tile/highlight lists
       if (filterQuery) {
@@ -1511,10 +1514,10 @@
         filterResults = Array.isArray(results) ? results : [];
         const matchIds = new Set(filterResults.map(r => r.id));
         items.forEach(item => {
-          const li = buildStoryItem(item);
           const contentMatch = matchIds.has(item.id);
           const nameMatch = normalizeSearch(item.name || '').includes(filterQuery);
-          if (!contentMatch && !nameMatch) li.classList.add('dimmed');
+          if (!contentMatch && !nameMatch) return;
+          const li = buildStoryItem(item);
           storyListEl.appendChild(li);
         });
       } else {
@@ -1589,10 +1592,17 @@
       if (matchingTiles !== null) {
         const contentMatch = matchingTiles.includes(filename);
         const nameMatch = normalizeSearch(tile.name).includes(filterQuery);
-        if (!contentMatch && !nameMatch) li.classList.add('dimmed');
+        const justAdded = filename === justAddedTileFilename;
+        if (!contentMatch && !nameMatch && !justAdded) return;
       }
       binderTilesList.appendChild(li);
     });
+    if (matchingTiles !== null && binderTilesList.children.length === 0) {
+      const placeholder = document.createElement('li');
+      placeholder.className = 'binder-placeholder';
+      placeholder.textContent = 'No matching tiles';
+      binderTilesList.appendChild(placeholder);
+    }
   }
 
   function buildTileItem(tile) {
@@ -1796,6 +1806,7 @@
       if (res && res.filename) {
         tilesOrder.push(res.filename);
         tilesCache[res.filename] = '';
+        justAddedTileFilename = res.filename;
         await refreshFilterResults();
         loadTilesList();
         openTile(res.filename);

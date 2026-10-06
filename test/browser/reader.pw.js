@@ -24,7 +24,7 @@ async function createPublishedStory(request, content) {
   return storyId;
 }
 
-test.beforeEach(async ({ request }) => {
+test.afterEach(async ({ request }) => {
   const res = await request.get('/api/list');
   const stories = await res.json();
   for (const s of stories) {

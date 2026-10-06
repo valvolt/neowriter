@@ -1,8 +1,8 @@
 if (process.env.NODE_TEST_CONTEXT) { /* run via: npm run test:browser */ } else {
 const { test, expect } = require('@playwright/test');
 
-// Clean all stories before each test for a predictable starting state
-test.beforeEach(async ({ request }) => {
+// Clean all stories after each test
+test.afterEach(async ({ request }) => {
   const res = await request.get('/api/list');
   const stories = await res.json();
   await Promise.all(stories.map(s => request.delete(`/api/story/${s.id}`)));
