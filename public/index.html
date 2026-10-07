@@ -125,8 +125,16 @@
   </main>
 
   <footer>
-    <div id="stats">Words: 0 — Chars: 0</div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div id="word-goal-area" style="display:none;">
+        <span id="word-goal-label" title="Click to set word-count target"></span>
+        <input id="word-goal-input" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="words"
+               style="display:none; width:55px; font-size:0.75rem; border:none; border-bottom:1px solid #aaa; outline:none; background:transparent; padding:0; color:#555;">
+      </div>
+      <div id="stats">Words: 0 — Chars: 0</div>
+    </div>
     <div id="current-name"></div>
+    <div id="word-target-fill" style="position:absolute;bottom:0;left:0;height:3px;width:0;transition:width 0.3s;display:none;"></div>
   </footer>
 
   <nav id="mobile-nav" aria-label="Mobile navigation">

@@ -75,6 +75,29 @@ module.exports = function storiesRouter({ getUsername, getDisplayName, DEFAULT_U
     }
   });
 
+  // Set / clear word-count target
+  router.post('/story/:id/target', async (req, res) => {
+    const id = req.params.id;
+    const raw = parseInt(req.body && req.body.wordTarget, 10);
+    const target = Number.isFinite(raw) && raw > 0 ? raw : null;
+    try {
+      const username = getUsername(req);
+      await withMetaLock(username, async () => {
+        const meta = await readMeta(username);
+        const item = meta.find(m => m.id === id);
+        if (!item) throw Object.assign(new Error('not found'), { status: 404 });
+        if (target) item.wordTarget = target;
+        else delete item.wordTarget;
+        await writeMeta(username, meta);
+      });
+      res.json({ id, wordTarget: target });
+    } catch (err) {
+      if (err.status === 404) return res.status(404).json({ error: 'not found' });
+      console.error(err);
+      res.status(500).json({ error: 'failed to set target' });
+    }
+  });
+
   // Delete story
   router.delete('/story/:id', async (req, res) => {
     const id = req.params.id;

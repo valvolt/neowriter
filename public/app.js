@@ -32,6 +32,10 @@
   const editor = $('editor');
   const preview = $('preview');
   const stats = $('stats');
+  const wordGoalArea  = $('word-goal-area');
+  const wordGoalLabel = $('word-goal-label');
+  const wordGoalInput = $('word-goal-input');
+  const wordTargetFill = $('word-target-fill');
   const btnNew = $('btn-new');
   const currentName = $('current-name');
   const openStoryEl = $('open-story-name');
@@ -176,6 +180,8 @@
 
   let currentStoryId = null;
   let currentStoryName = null;
+  let currentWordTarget = 0;
+  let cachedStoryList = [];
 
   // Filter state: filterQuery is the active search string; filterResults is the last
   // server response (array of {id, name, matchingTiles, matchingHighlights}) or null
@@ -226,6 +232,20 @@
 
   // --- Utilities ---
 
+  function updateWordGoalLabel() {
+    if (!wordGoalLabel) return;
+    const full = getFullStoryText();
+    const totalWords = full.trim() ? full.trim().split(/\s+/).length : 0;
+    if (currentWordTarget > 0) {
+      const pct = Math.floor(totalWords / currentWordTarget * 100);
+      wordGoalLabel.textContent = `✏ Goal: ${currentWordTarget.toLocaleString()} (${pct} %)`;
+      wordGoalLabel.style.color = pct >= 100 ? '#43a047' : pct >= 75 ? '#66bb6a' : pct >= 50 ? '#ffa726' : '#aaa';
+    } else {
+      wordGoalLabel.textContent = '\u270f Goal: \u2014';
+      wordGoalLabel.style.color = '#bbb';
+    }
+  }
+
   function updateStats(text) {
     const chars = text.length;
     const words = text.trim().length ? text.trim().split(/\s+/).length : 0;
@@ -237,6 +257,16 @@
       : 0;
 
     stats.textContent = `Words: ${words}/${totalWords} \u2014 Chars: ${chars}/${totalChars} \u2014 Pages: ${Math.round(words/300)}/${Math.round(totalWords/300)}`;
+
+    if (currentWordTarget > 0 && wordTargetFill) {
+      const pct = Math.floor(totalWords / currentWordTarget * 100);
+      wordTargetFill.style.width = Math.min(100, pct) + '%';
+      wordTargetFill.style.background = pct >= 100 ? '#43a047' : pct >= 75 ? '#66bb6a' : pct >= 50 ? '#ffa726' : '#4a90e2';
+      wordTargetFill.style.display = '';
+    } else if (wordTargetFill) {
+      wordTargetFill.style.display = 'none';
+    }
+    updateWordGoalLabel();
   }
 
   function initMermaidIfPresent() {
@@ -1160,6 +1190,55 @@
   if (btnImport) btnImport.addEventListener('click', () => importZip(null));
   if (btnImportBinder) btnImportBinder.addEventListener('click', () => importZip(currentStoryId));
 
+  // --- Word-count target: inline footer editing ---
+  async function saveWordGoal(value) {
+    const wordTarget = parseInt(value, 10) || 0;
+    if (!currentStoryId) return;
+    try {
+      await api(`/api/story/${currentStoryId}/target`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wordTarget }),
+      });
+      currentWordTarget = wordTarget;
+      // Update cached list so re-entering the story picks up the new value
+      const entry = cachedStoryList.find(i => i.id === currentStoryId);
+      if (entry) { if (wordTarget) entry.wordTarget = wordTarget; else delete entry.wordTarget; }
+      updateWordGoalLabel();
+      updateStats(editor ? editor.value : '');
+    } catch (e) { console.error('set target failed', e); }
+  }
+
+  if (wordGoalLabel) {
+    wordGoalLabel.style.cssText = 'font-size:0.75rem; cursor:pointer; white-space:nowrap;';
+    wordGoalLabel.addEventListener('click', () => {
+      if (!currentStoryId || !wordGoalInput) return;
+      wordGoalLabel.style.display = 'none';
+      wordGoalInput.value = currentWordTarget || '';
+      wordGoalInput.style.display = '';
+      wordGoalInput.focus();
+      wordGoalInput.select();
+    });
+  }
+
+  if (wordGoalInput) {
+    wordGoalInput.addEventListener('input', () => {
+      wordGoalInput.value = wordGoalInput.value.replace(/\D/g, '');
+    });
+    wordGoalInput.addEventListener('keydown', async (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); wordGoalInput.blur(); }
+      if (ev.key === 'Escape') {
+        wordGoalInput.style.display = 'none';
+        if (wordGoalLabel) wordGoalLabel.style.display = '';
+      }
+    });
+    wordGoalInput.addEventListener('blur', async () => {
+      wordGoalInput.style.display = 'none';
+      if (wordGoalLabel) wordGoalLabel.style.display = '';
+      await saveWordGoal(wordGoalInput.value);
+    });
+  }
+
   async function showStoryList() {
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -1172,6 +1251,8 @@
     if (globalTodoEntry) globalTodoEntry.classList.remove('active');
     currentStoryId = null;
     currentStoryName = null;
+    currentWordTarget = 0;
+    if (wordGoalArea) wordGoalArea.style.display = 'none';
     editMode = null;
     currentTileFilename = null;
     currentHighlightFilename = null;
@@ -1199,6 +1280,9 @@
   async function showBinder(storyId, storyName) {
     currentStoryId = storyId;
     currentStoryName = storyName;
+    currentWordTarget = cachedStoryList.find(i => i.id === storyId)?.wordTarget || 0;
+    if (wordGoalArea) wordGoalArea.style.display = '';
+    updateWordGoalLabel();
     editMode = null;
     currentTileFilename = null;
     currentHighlightFilename = null;
@@ -1560,6 +1644,7 @@
     try {
       const list = await api('/api/list');
       const items = Array.isArray(list) ? list : [];
+      cachedStoryList = items;
       items.sort((a, b) => {
         if (!!a.published !== !!b.published) return a.published ? -1 : 1;
         return (a.name || '').localeCompare(b.name || '');
