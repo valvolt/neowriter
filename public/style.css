@@ -654,9 +654,9 @@ mark {
   #toggle-highlights  {display:none !important;}
   header > a          {display:none !important;}
   #speech-controls    {display:inline-flex !important;}  /* keep mic button */
-  #speech-lang        {display:none;}                    /* hide language select */
   #filter-input       {width:90px !important;}
   #open-story-name    {max-width:120px;}
+  .speech-lang        {font-size:10px; padding:2px 2px; width:52px;}
 
   /* Bottom nav bar */
   #mobile-nav{
