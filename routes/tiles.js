@@ -5,7 +5,7 @@ const {
   readMeta, safeJoin, storyDir, atomicWrite,
   tileCache, _setCache, _delCache,
   readTileOrder, writeTileOrder, readNames, writeNames, getDisplayNameForFile,
-  sanitizeFilename,
+  sanitizeFilename, withStoryLock,
 } = require('../utils/server-utils');
 
 module.exports = function createTilesRouter({ getUsername }) {
@@ -61,23 +61,30 @@ module.exports = function createTilesRouter({ getUsername }) {
       const tilesDir = path.join(storyDir(username, id), 'tiles');
       await fs.mkdir(tilesDir, { recursive: true });
 
-      let files = [];
-      try {
-        files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
-      } catch (e) {
-        files = [];
-      }
-      const existingSet = new Set(files);
-      let num = files.length + 1;
-      while (existingSet.has(`chapter-${num}.md`)) {
-        num++;
-      }
-      const filename = `chapter-${num}.md`;
-      await fs.writeFile(path.join(tilesDir, filename), '', 'utf8');
+      const { filename, num } = await withStoryLock(username, id, async () => {
+        let files = [];
+        try { files = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md')); }
+        catch (e) { files = []; }
 
-      const order = (await readTileOrder(username, id)) || files;
-      order.push(filename);
-      await writeTileOrder(username, id, order);
+        let n = files.length + 1;
+        let name;
+        // Exclusive create: retry until we claim a filename atomically.
+        while (true) {
+          name = `chapter-${n}.md`;
+          try {
+            await fs.writeFile(path.join(tilesDir, name), '', { flag: 'wx' });
+            break;
+          } catch (e) {
+            if (e.code !== 'EEXIST') throw e;
+            n++;
+          }
+        }
+
+        const order = (await readTileOrder(username, id)) || files;
+        order.push(name);
+        await writeTileOrder(username, id, order);
+        return { filename: name, num: n };
+      });
 
       res.json({ filename, name: `chapter-${num}` });
     } catch (err) {
@@ -155,47 +162,42 @@ module.exports = function createTilesRouter({ getUsername }) {
 
       const tilesDir = path.join(storyDir(username, id), 'tiles');
       const oldPath = safeJoin(tilesDir, filename);
-      try {
-        await fs.access(oldPath);
-      } catch (e) {
-        return res.status(404).json({ error: 'tile not found' });
-      }
+      try { await fs.access(oldPath); }
+      catch (e) { return res.status(404).json({ error: 'tile not found' }); }
 
-      let newFilename = sanitizeFilename(newName) + '.md';
-      if (newFilename !== filename) {
-        let newPath = path.join(tilesDir, newFilename);
-        let counter = 1;
-        while (true) {
-          try {
-            await fs.access(newPath);
-            counter++;
-            newFilename = sanitizeFilename(newName) + '-' + counter + '.md';
-            newPath = path.join(tilesDir, newFilename);
-          } catch (e) {
-            break;
+      const result = await withStoryLock(username, id, async () => {
+        let newFilename = sanitizeFilename(newName) + '.md';
+        if (newFilename !== filename) {
+          // Find a non-colliding filename.
+          let newPath = path.join(tilesDir, newFilename);
+          let counter = 1;
+          while (true) {
+            try { await fs.access(newPath); counter++; newFilename = sanitizeFilename(newName) + '-' + counter + '.md'; newPath = path.join(tilesDir, newFilename); }
+            catch (e) { break; }
           }
-        }
-        await fs.rename(oldPath, newPath);
-        _delCache(tileCache, username, id, filename);
 
-        const order = await readTileOrder(username, id);
-        if (order && Array.isArray(order)) {
-          const idx = order.indexOf(filename);
-          if (idx !== -1) {
-            order[idx] = newFilename;
-            await writeTileOrder(username, id, order);
+          // Update order BEFORE renaming the file so a crash here leaves the
+          // content safe at the old path (tile shows new name in list but 404s
+          // on open; recoverable by retrying the rename).
+          const order = await readTileOrder(username, id);
+          if (order && Array.isArray(order)) {
+            const idx = order.indexOf(filename);
+            if (idx !== -1) { order[idx] = newFilename; await writeTileOrder(username, id, order); }
           }
+
+          await fs.rename(oldPath, path.join(tilesDir, newFilename));
+          _delCache(tileCache, username, id, filename);
         }
-      }
 
-      const names = await readNames(tilesDir);
-      if (newFilename !== filename) {
-        delete names[filename];
-      }
-      names[newFilename] = newName;
-      await writeNames(tilesDir, names);
+        const names = await readNames(tilesDir);
+        if (newFilename !== filename) delete names[filename];
+        names[newFilename] = newName;
+        await writeNames(tilesDir, names);
 
-      res.json({ filename: newFilename, name: newName });
+        return { filename: newFilename, name: newName };
+      });
+
+      res.json(result);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'failed to rename tile' });
@@ -214,27 +216,25 @@ module.exports = function createTilesRouter({ getUsername }) {
 
       const tilesDir = path.join(storyDir(username, id), 'tiles');
       const filePath = safeJoin(tilesDir, filename);
-      try {
+      try { await fs.access(filePath); }
+      catch (e) { return res.status(404).json({ error: 'tile not found' }); }
+
+      await withStoryLock(username, id, async () => {
+        // Remove from order BEFORE unlinking: a crash between these two steps
+        // leaves an orphaned file on disk (harmless) rather than a ghost entry
+        // in the order (invisible, unrecoverable through the UI).
+        const order = await readTileOrder(username, id);
+        if (order && Array.isArray(order)) {
+          const idx = order.indexOf(filename);
+          if (idx !== -1) { order.splice(idx, 1); await writeTileOrder(username, id, order); }
+        }
+
         await fs.unlink(filePath);
         _delCache(tileCache, username, id, filename);
-      } catch (e) {
-        return res.status(404).json({ error: 'tile not found' });
-      }
 
-      const order = await readTileOrder(username, id);
-      if (order && Array.isArray(order)) {
-        const idx = order.indexOf(filename);
-        if (idx !== -1) {
-          order.splice(idx, 1);
-          await writeTileOrder(username, id, order);
-        }
-      }
-
-      const names = await readNames(tilesDir);
-      if (names[filename]) {
-        delete names[filename];
-        await writeNames(tilesDir, names);
-      }
+        const names = await readNames(tilesDir);
+        if (names[filename]) { delete names[filename]; await writeNames(tilesDir, names); }
+      });
 
       res.json({ ok: true, filename });
     } catch (err) {

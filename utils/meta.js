@@ -10,6 +10,16 @@ function withMetaLock(username, fn) {
   return next;
 }
 
+const _storyQueues = new Map();
+
+function withStoryLock(username, storyId, fn) {
+  const key = `${username}/${storyId}`;
+  const prev = _storyQueues.get(key) || Promise.resolve();
+  const next = prev.then(fn);
+  _storyQueues.set(key, next.catch(() => {}));
+  return next;
+}
+
 function createMetaHelpers(DATA_DIR) {
   function userDir(username) {
     return path.join(DATA_DIR, username);
@@ -48,4 +58,4 @@ function createMetaHelpers(DATA_DIR) {
   return { userDir, metaFile, ensureUserData, readMeta, writeMeta, withMetaLock };
 }
 
-module.exports = { createMetaHelpers };
+module.exports = { createMetaHelpers, withStoryLock };

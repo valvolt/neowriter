@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs').promises;
 const { DATA_DIR } = require('../config');
-const { createMetaHelpers } = require('./meta');
+const { createMetaHelpers, withStoryLock } = require('./meta');
 const { sanitizeFilename } = require('./sanitize');
 
 const { userDir, metaFile, ensureUserData, readMeta, writeMeta, withMetaLock } = createMetaHelpers(DATA_DIR);
@@ -182,7 +182,7 @@ async function getQuotaBytes(username, defaultQuotaMB) {
 }
 
 module.exports = {
-  userDir, metaFile, ensureUserData, readMeta, writeMeta, withMetaLock,
+  userDir, metaFile, ensureUserData, readMeta, writeMeta, withMetaLock, withStoryLock,
   normalizeSearch, safeJoin, atomicWrite, storyDir,
   tileCache, highlightCache, _getCache, _setCache, _delCache,
   readTileCached, readHighlightCached,

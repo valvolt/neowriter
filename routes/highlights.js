@@ -5,7 +5,7 @@ const {
   readMeta, safeJoin, storyDir, atomicWrite,
   highlightCache, _setCache, _delCache,
   readNames, writeNames, getDisplayNameForFile,
-  sanitizeFilename,
+  sanitizeFilename, withStoryLock,
 } = require('../utils/server-utils');
 
 module.exports = function createHighlightsRouter({ getUsername }) {
@@ -49,19 +49,27 @@ module.exports = function createHighlightsRouter({ getUsername }) {
       const highlightsDir = path.join(storyDir(username, id), 'highlights');
       await fs.mkdir(highlightsDir, { recursive: true });
 
-      let files = [];
-      try {
-        files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
-      } catch (e) {
-        files = [];
-      }
-      const existingSet = new Set(files);
-      let num = files.length + 1;
-      while (existingSet.has(`highlight-${num}.md`)) {
-        num++;
-      }
-      const filename = `highlight-${num}.md`;
-      await fs.writeFile(path.join(highlightsDir, filename), '', 'utf8');
+      const { filename, num } = await withStoryLock(username, id, async () => {
+        let files = [];
+        try { files = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md')); }
+        catch (e) { files = []; }
+
+        let n = files.length + 1;
+        let name;
+        // Exclusive create: retry until we claim a filename atomically.
+        while (true) {
+          name = `highlight-${n}.md`;
+          try {
+            await fs.writeFile(path.join(highlightsDir, name), '', { flag: 'wx' });
+            break;
+          } catch (e) {
+            if (e.code !== 'EEXIST') throw e;
+            n++;
+          }
+        }
+        return { filename: name, num: n };
+      });
+
       res.json({ filename, name: `highlight-${num}` });
     } catch (err) {
       console.error(err);
@@ -138,84 +146,79 @@ module.exports = function createHighlightsRouter({ getUsername }) {
 
       const highlightsDir = path.join(storyDir(username, id), 'highlights');
       const oldPath = safeJoin(highlightsDir, filename);
-      try {
-        await fs.access(oldPath);
-      } catch (e) {
-        return res.status(404).json({ error: 'highlight not found' });
-      }
+      try { await fs.access(oldPath); }
+      catch (e) { return res.status(404).json({ error: 'highlight not found' }); }
 
-      const names = await readNames(highlightsDir);
-      const oldName = getDisplayNameForFile(names, filename);
+      const result = await withStoryLock(username, id, async () => {
+        const names = await readNames(highlightsDir);
+        const oldName = getDisplayNameForFile(names, filename);
 
-      let newFilename = sanitizeFilename(newName) + '.md';
-      if (newFilename !== filename) {
-        let newPath = path.join(highlightsDir, newFilename);
-        let counter = 1;
-        while (true) {
+        let newFilename = sanitizeFilename(newName) + '.md';
+        if (newFilename !== filename) {
+          let newPath = path.join(highlightsDir, newFilename);
+          let counter = 1;
+          while (true) {
+            try { await fs.access(newPath); counter++; newFilename = sanitizeFilename(newName) + '-' + counter + '.md'; newPath = path.join(highlightsDir, newFilename); }
+            catch (e) { break; }
+          }
+
+          // Write BOTH old and new name entries before renaming the file. If we
+          // crash after this write but before the rename, the file is still
+          // accessible at the old path with its old display name. If we crash
+          // after the rename but before the cleanup write, both entries exist in
+          // names (a harmless orphan).
+          names[newFilename] = newName;
+          await writeNames(highlightsDir, names);
+
+          await fs.rename(oldPath, path.join(highlightsDir, newFilename));
+          _delCache(highlightCache, username, id, filename);
+
+          // Cleanup: remove the old name entry now that the file is at newFilename.
+          delete names[filename];
+          await writeNames(highlightsDir, names);
+        } else {
+          names[newFilename] = newName;
+          await writeNames(highlightsDir, names);
+        }
+
+        // Propagate rename into all tile and highlight files
+        const tilesDir = path.join(storyDir(username, id), 'tiles');
+        let tileFiles = [];
+        try { tileFiles = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md')); }
+        catch (e) { tileFiles = []; }
+
+        let highlightFiles = [];
+        try { highlightFiles = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md')); }
+        catch (e) { highlightFiles = []; }
+
+        const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const replaceRegex = new RegExp(escapedOld, 'giu');
+
+        const replaceInFile = async (filePath) => {
           try {
-            await fs.access(newPath);
-            counter++;
-            newFilename = sanitizeFilename(newName) + '-' + counter + '.md';
-            newPath = path.join(highlightsDir, newFilename);
+            const content = await fs.readFile(filePath, 'utf8');
+            if (!replaceRegex.test(content)) return;
+            replaceRegex.lastIndex = 0;
+            const updated = content.replace(replaceRegex, (match) => {
+              if (match === match.toUpperCase()) return newName.toUpperCase();
+              if (match[0] === match[0].toUpperCase()) return newName.charAt(0).toUpperCase() + newName.slice(1);
+              return newName.toLowerCase();
+            });
+            if (updated !== content) await atomicWrite(filePath, updated);
           } catch (e) {
-            break;
+            console.error(`failed to update file ${filePath}`, e);
           }
-        }
-        await fs.rename(oldPath, newPath);
-        _delCache(highlightCache, username, id, filename);
-      }
+        };
 
-      if (newFilename !== filename) {
-        delete names[filename];
-      }
-      names[newFilename] = newName;
-      await writeNames(highlightsDir, names);
+        await Promise.all([
+          ...tileFiles.map(f => replaceInFile(path.join(tilesDir, f))),
+          ...highlightFiles.map(f => replaceInFile(path.join(highlightsDir, f))),
+        ]);
 
-      // Propagate rename into all tile and highlight files
-      const tilesDir = path.join(storyDir(username, id), 'tiles');
-      let tileFiles = [];
-      try {
-        tileFiles = (await fs.readdir(tilesDir)).filter(f => f.endsWith('.md'));
-      } catch (e) {
-        tileFiles = [];
-      }
+        return { filename: newFilename, name: newName };
+      });
 
-      let highlightFiles = [];
-      try {
-        highlightFiles = (await fs.readdir(highlightsDir)).filter(f => f.endsWith('.md'));
-      } catch (e) {
-        highlightFiles = [];
-      }
-
-      const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const replaceRegex = new RegExp(escapedOld, 'giu');
-
-      const replaceInFile = async (filePath) => {
-        try {
-          const content = await fs.readFile(filePath, 'utf8');
-          if (!replaceRegex.test(content)) return;
-          replaceRegex.lastIndex = 0;
-          const updated = content.replace(replaceRegex, (match) => {
-            if (match === match.toUpperCase()) return newName.toUpperCase();
-            if (match[0] === match[0].toUpperCase()) {
-              return newName.charAt(0).toUpperCase() + newName.slice(1);
-            }
-            return newName.toLowerCase();
-          });
-          if (updated !== content) {
-            await atomicWrite(filePath, updated);
-          }
-        } catch (e) {
-          console.error(`failed to update file ${filePath}`, e);
-        }
-      };
-
-      await Promise.all([
-        ...tileFiles.map(f => replaceInFile(path.join(tilesDir, f))),
-        ...highlightFiles.map(f => replaceInFile(path.join(highlightsDir, f))),
-      ]);
-
-      res.json({ filename: newFilename, name: newName });
+      res.json(result);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'failed to rename highlight' });
