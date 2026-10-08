@@ -111,7 +111,7 @@ test('editor content is saved when navigating away', async ({ page }) => {
 
 // publish toggle is only visible in hosted mode (window.local_mode === false)
 // and cannot be tested against the LOCAL mode server used here
-test.skip('publish toggle changes button state (hosted mode only)', async ({ page }) => {
+test('publish toggle changes button state @hosted', async ({ page }) => {
   await page.goto('/');
   await openNewStory(page, 'Publish Test');
 
@@ -120,8 +120,6 @@ test.skip('publish toggle changes button state (hosted mode only)', async ({ pag
 
   const before = await toggleBtn.textContent();
   await toggleBtn.click();
-  const after = await toggleBtn.textContent();
-
-  expect(after).not.toBe(before);
+  await expect(toggleBtn).not.toHaveText(before);
 });
 }

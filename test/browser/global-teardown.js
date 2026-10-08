@@ -2,10 +2,8 @@ const path = require('path');
 const fs = require('fs').promises;
 
 module.exports = async function globalTeardown() {
-  const dataTestDir = path.join(__dirname, '..', '..', 'data_test');
-  try {
-    await fs.rm(dataTestDir, { recursive: true, force: true });
-  } catch (e) {
-    // Not a fatal error if the directory doesn't exist
-  }
+  await Promise.all([
+    fs.rm(path.join(__dirname, '..', '..', 'data_test'), { recursive: true, force: true }).catch(() => {}),
+    fs.rm(path.join(__dirname, '..', '..', 'data_test_hosted'), { recursive: true, force: true }).catch(() => {}),
+  ]);
 };
