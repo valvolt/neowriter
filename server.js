@@ -980,7 +980,7 @@ app.get('/public/story/:username/:id', (req, res) => {
 });
 
 // Fallback to dynamic index.html for SPA navigation
-app.get('*', (req, res) => {
+app.get('/{*path}', (req, res) => {
   if (!LOCAL_MODE && (!req.oidc || !req.oidc.isAuthenticated())) {
     return res.redirect('/');
   }
