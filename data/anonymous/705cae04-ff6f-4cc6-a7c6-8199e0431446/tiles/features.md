@@ -12,6 +12,18 @@ Tiles are the sections of your story. They appear in the left panel and are all 
 * Lines starting with **‡** inside a tile become keyword tags visible in the story list and when published (‡sci-fi ‡romance)
 
 
+## Keyboard navigation
+Move between tiles and highlights without leaving the keyboard.
+
+
+| Keys | Action |
+|---|---|
+| Alt + ↓ or Ctrl + ] | Next tile or highlight |
+| Alt + ↑ or Ctrl + [ | Previous tile or highlight |
+
+Navigation runs in a single loop: after the last tile comes the first highlight; after the last highlight comes the first tile (and vice versa going backwards). Highlight order follows the active sort (A→Z, Most, Least).
+
+
 ## Highlights
 Highlights track recurring story elements — characters, places, objects, themes.
 
@@ -47,6 +59,17 @@ The footer shows live word and character counts:
 
 * **Words / Chars** — current tile, then total across all tiles
 * **Pages** — estimated at 1 page for 300 words (1 minute read)
+
+
+## Word count goal
+Set a target word count for any open story directly in the footer.
+
+
+* Click **✏ Goal: —** on the left of the footer to type a number and press Enter
+* The label updates to show your current total and the percentage reached (e.g. `✏ Goal: 5 000 (73 %)`)
+* A thin colour bar along the bottom of the footer fills as you write: blue → amber (≥ 50 %) → light green (≥ 75 %) → green (≥ 100 %)
+* The percentage can exceed 100 % if you go over target
+* Click the label again to change or clear the goal (delete the number and press Enter)
 
 
 ## Speech to text

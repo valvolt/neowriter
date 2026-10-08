@@ -262,7 +262,7 @@
       const pct = Math.floor(totalWords / currentWordTarget * 100);
       wordTargetFill.style.width = Math.min(100, pct) + '%';
       wordTargetFill.style.background = pct >= 100 ? '#43a047' : pct >= 75 ? '#66bb6a' : pct >= 50 ? '#ffa726' : '#4a90e2';
-      wordTargetFill.style.display = '';
+      wordTargetFill.style.display = 'block';
     } else if (wordTargetFill) {
       wordTargetFill.style.display = 'none';
     }
