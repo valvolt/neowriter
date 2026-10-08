@@ -2474,6 +2474,45 @@
     }
   });
 
+  editor.addEventListener('keydown', (ev) => {
+    if (!currentStoryId || (editMode !== 'tile' && editMode !== 'highlight')) return;
+    const goNext = (ev.altKey && ev.key === 'ArrowDown') || (ev.ctrlKey && ev.key === ']');
+    const goPrev = (ev.altKey && ev.key === 'ArrowUp')   || (ev.ctrlKey && ev.key === '[');
+    if (!goNext && !goPrev) return;
+    const sortedHL = getSortedHighlights();
+    if (tilesOrder.length + sortedHL.length < 2) return;
+    ev.preventDefault();
+    const scrollTile = () => {
+      const a = document.querySelector('#binder-tiles-list .tile-item.active');
+      if (a) a.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    const scrollHL = () => {
+      const a = document.querySelector('#binder-highlights-list .tile-item.active');
+      if (a) a.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    if (editMode === 'tile') {
+      const idx = tilesOrder.indexOf(currentTileFilename);
+      if (idx === -1) return;
+      if (goNext) {
+        if (idx < tilesOrder.length - 1) openTile(tilesOrder[idx + 1]).then(scrollTile);
+        else if (sortedHL.length > 0)    openHighlight(sortedHL[0].filename).then(scrollHL);
+      } else {
+        if (idx > 0)                     openTile(tilesOrder[idx - 1]).then(scrollTile);
+        else if (sortedHL.length > 0)    openHighlight(sortedHL[sortedHL.length - 1].filename).then(scrollHL);
+      }
+    } else {
+      const idx = sortedHL.findIndex(h => h.filename === currentHighlightFilename);
+      if (idx === -1) return;
+      if (goNext) {
+        if (idx < sortedHL.length - 1)   openHighlight(sortedHL[idx + 1].filename).then(scrollHL);
+        else if (tilesOrder.length > 0)  openTile(tilesOrder[0]).then(scrollTile);
+      } else {
+        if (idx > 0)                     openHighlight(sortedHL[idx - 1].filename).then(scrollHL);
+        else if (tilesOrder.length > 0)  openTile(tilesOrder[tilesOrder.length - 1]).then(scrollTile);
+      }
+    }
+  });
+
   btnNew.addEventListener('click', createStory);
   btnBack.addEventListener('click', () => {
     showStoryList();
