@@ -2916,16 +2916,17 @@
 
   function startSpeech() {
     if (!SpeechRecognition || speechActive) return;
-    speechRecognition = new SpeechRecognition();
-    speechRecognition.lang = speechLangEl ? speechLangEl.value : 'en-US';
-    speechRecognition.continuous = true;
-    speechRecognition.interimResults = true;
+    const recognition = new SpeechRecognition();
+    speechRecognition = recognition;
+    recognition.lang = speechLangEl ? speechLangEl.value : 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = true;
 
     // Save cursor position for ghost insertion
     speechGhostStart = getEditorCursorOffset();
     speechGhostLen = 0;
 
-    speechRecognition.onresult = (event) => {
+    recognition.onresult = (event) => {
       let interimTranscript = '';
       let finalTranscript = '';
 
@@ -2948,22 +2949,23 @@
       }
     };
 
-    speechRecognition.onerror = (event) => {
+    recognition.onerror = (event) => {
       console.warn('Speech recognition error', event.error);
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         stopSpeech();
       }
     };
 
-    speechRecognition.onend = () => {
-      // If still active (continuous mode may stop unexpectedly), restart
-      if (speechActive) {
-        try { speechRecognition.start(); } catch (e) { stopSpeech(); }
+    recognition.onend = () => {
+      // Only restart if this instance is still the active one — prevents a stale
+      // onend from a previous session killing a newly started session.
+      if (speechActive && speechRecognition === recognition) {
+        try { recognition.start(); } catch (e) { stopSpeech(); }
       }
     };
 
     try {
-      speechRecognition.start();
+      recognition.start();
       speechActive = true;
       if (btnMic) btnMic.classList.add('active');
     } catch (e) {
