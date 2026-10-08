@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs').promises;
-const { ZipArchive } = require('archiver');
+const AdmZip = require('adm-zip');
 const express = require('express');
 const { readMeta, storyDir, readTileOrder, readNames, sanitizeFilename } = require('../utils/server-utils');
 
@@ -15,12 +15,7 @@ module.exports = function createExportRouter({ getUsername }) {
       if (!story) return res.status(404).json({ error: 'Not found' });
 
       const storyFolder = sanitizeFilename(story.name);
-      res.attachment(`${storyFolder}.zip`);
-
-      const archive = new ZipArchive({ zlib: { level: 6 } });
-      archive.on('error', () => { if (!res.headersSent) res.status(500).end(); });
-      archive.pipe(res);
-
+      const archive = new AdmZip();
       const dir = storyDir(username, story.id);
 
       // Tiles — ordered, prefixed with zero-padded index
@@ -32,9 +27,8 @@ module.exports = function createExportRouter({ getUsername }) {
         const f = order[i];
         const displayName = tileNames[f] || f.replace(/\.md$/, '');
         const stem = sanitizeFilename(displayName);
-        archive.file(path.join(dir, 'tiles', f), {
-          name: `${storyFolder}/tiles/${pad(i + 1)}-${stem}.md`,
-        });
+        const content = await fs.readFile(path.join(dir, 'tiles', f));
+        archive.addFile(`${storyFolder}/tiles/${pad(i + 1)}-${stem}.md`, content);
       }
 
       // Highlights — display name as filename, no prefix (no canonical order)
@@ -45,7 +39,8 @@ module.exports = function createExportRouter({ getUsername }) {
         for (const f of hlFiles) {
           const displayName = hlNames[f] || f.replace(/\.md$/, '');
           const stem = sanitizeFilename(displayName);
-          archive.file(path.join(hlDir, f), { name: `${storyFolder}/highlights/${stem}.md` });
+          const content = await fs.readFile(path.join(hlDir, f));
+          archive.addFile(`${storyFolder}/highlights/${stem}.md`, content);
         }
       } catch (_) { /* no highlights directory */ }
 
@@ -53,11 +48,14 @@ module.exports = function createExportRouter({ getUsername }) {
       const picDir = path.join(dir, 'pictures');
       try {
         for (const f of await fs.readdir(picDir)) {
-          archive.file(path.join(picDir, f), { name: `${storyFolder}/pictures/${f}` });
+          const content = await fs.readFile(path.join(picDir, f));
+          archive.addFile(`${storyFolder}/pictures/${f}`, content);
         }
       } catch (_) { /* no pictures directory */ }
 
-      await archive.finalize();
+      const buf = archive.toBuffer();
+      res.attachment(`${storyFolder}.zip`);
+      res.send(buf);
     } catch (e) {
       if (!res.headersSent) res.status(500).json({ error: 'Export failed' });
     }
