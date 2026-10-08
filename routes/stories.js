@@ -1,6 +1,5 @@
 // routes/stories.js
 const express = require('express');
-const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
 const { sanitizeFilename } = require('../utils/sanitize');
@@ -28,7 +27,7 @@ module.exports = function storiesRouter({ getUsername, getDisplayName, DEFAULT_U
     try {
       const username = getUsername(req);
       await ensureUserData(username);
-      const id = uuidv4();
+      const id = require('crypto').randomUUID();
       const author = getDisplayName(req) || username;
       await withMetaLock(username, async () => {
         const meta = await readMeta(username);

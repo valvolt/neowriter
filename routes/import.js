@@ -2,7 +2,6 @@ const path = require('path');
 const fs = require('fs').promises;
 const AdmZip = require('adm-zip');
 const express = require('express');
-const { v4: uuidv4 } = require('uuid');
 const {
   ensureUserData, withMetaLock, readMeta, writeMeta,
   storyDir, atomicWrite, sanitizeFilename,
@@ -162,7 +161,7 @@ module.exports = function createImportRouter({ getUsername, LOCAL_MODE, STORAGE_
       } else {
         // --- NEW story ---
         const storyDisplayName = stemToDisplayName(topFolder);
-        const id = uuidv4();
+        const id = require('crypto').randomUUID();
         await ensureUserData(username);
 
         const dir = storyDir(username, id);
