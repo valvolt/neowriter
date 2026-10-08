@@ -1,4 +1,7 @@
 node_modules/
+public/purify.min.js
+public/mermaid.min.js
+public/marked.min.js
 data/
 data_test/
 .env
