@@ -742,7 +742,7 @@ app.post('/api/story/:id/pictures', async (req, res) => {
         return res.status(400).json({ error: 'file content does not match its extension' });
       }
       await fs.writeFile(filePath, buffer);
-      res.json({ ok: true, filename: sanitized, path: `/api/story/${id}/pictures/${sanitized}` });
+      res.json({ ok: true, filename: sanitized, path: `/api/story/${id}/pictures/${encodeURIComponent(sanitized)}` });
     } else if (url) {
       // Download from URL — hardened against SSRF, redirect abuse, and resource exhaustion
       const contentTypeToExt = {
