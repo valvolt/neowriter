@@ -222,6 +222,10 @@
   let highlightsRenderEnabled = true;
   const toggleHighlightsEl = $('toggle-highlights');
   const btnExportStory = $('btn-export-story');
+  const exportBtnWrap  = $('export-btn-wrap');
+  const exportDropdown = $('export-dropdown');
+  const exportOptZip   = $('export-opt-zip');
+  const exportOptPdf   = $('export-opt-pdf');
   const btnImport = $('btn-import');
   const btnImportBinder = $('btn-import-binder');
   const importFileInput = $('import-file-input');
@@ -1152,9 +1156,23 @@
   if (togglePublishEl) {
     togglePublishEl.addEventListener('click', togglePublish);
   }
-  if (btnExportStory) {
-    btnExportStory.addEventListener('click', () => {
+  if (btnExportStory && exportDropdown) {
+    btnExportStory.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportDropdown.style.display = exportDropdown.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => { exportDropdown.style.display = 'none'; });
+  }
+  if (exportOptZip) {
+    exportOptZip.addEventListener('click', () => {
       if (currentStoryId) window.location.href = `/api/story/${currentStoryId}/export`;
+      exportDropdown.style.display = 'none';
+    });
+  }
+  if (exportOptPdf) {
+    exportOptPdf.addEventListener('click', () => {
+      exportDropdown.style.display = 'none';
+      window.print();
     });
   }
 
@@ -1271,6 +1289,7 @@
     // Hide publish + export buttons when no story is open
     if (togglePublishEl) togglePublishEl.style.display = 'none';
     if (btnExportStory) btnExportStory.style.display = 'none';
+    if (exportBtnWrap) exportBtnWrap.style.display = 'none';
     storyPublished = false;
     refreshGlobalTodoBadge();
     updateEditorRuler();
@@ -1300,9 +1319,7 @@
       togglePublishEl.style.display = 'inline-block';
       await fetchPublishState();
     }
-    if (btnExportStory) {
-      btnExportStory.style.display = 'inline-block';
-    }
+    if (exportBtnWrap) exportBtnWrap.style.display = 'inline-flex';
 
     await fetchAllTilesContent();
     buildTileTagsCache();
