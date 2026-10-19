@@ -1170,36 +1170,69 @@
     });
   }
   if (exportOptPdf) {
-    exportOptPdf.addEventListener('click', () => {
+    exportOptPdf.addEventListener('click', async () => {
       exportDropdown.style.display = 'none';
       const preview = document.getElementById('preview');
       if (!preview) return;
       const filename = (currentStoryName || 'story').replace(/[^a-z0-9_\-]/gi, '_') + '.pdf';
-      html2pdf().set({
-        margin: 10,
-        filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          onclone: (clonedDoc) => {
-            const el = clonedDoc.getElementById('preview');
-            if (el) {
-              el.style.width = '800px';
-              el.style.maxWidth = '800px';
-              el.style.overflow = 'visible';
-              el.style.height = 'auto';
-            }
-            clonedDoc.querySelectorAll('.mermaid svg').forEach(svg => {
-              svg.style.width = '100%';
-              svg.style.height = 'auto';
-              svg.removeAttribute('width');
-              svg.removeAttribute('height');
-            });
-          }
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      }).from(preview).save();
+
+      // Temporarily collapse the split-pane so #render-pane fills the full window
+      // width. html2canvas uses getBoundingClientRect() on the live element to
+      // determine the capture area, so the DOM must actually be wide before capture.
+      const editorPane = document.getElementById('editor-pane');
+      const menuEl    = document.getElementById('menu');
+      const handles   = document.querySelectorAll('.resize-handle');
+      const savedEditor  = editorPane ? editorPane.style.display : null;
+      const savedMenu    = menuEl    ? menuEl.style.display    : null;
+      const savedOverflow = preview.style.overflow;
+      const savedHeight   = preview.style.height;
+
+      if (editorPane) editorPane.style.display = 'none';
+      if (menuEl)    menuEl.style.display    = 'none';
+      handles.forEach(h => { h.style.display = 'none'; });
+      preview.style.overflow = 'visible';
+      preview.style.height   = 'auto';
+
+      // Two rAF ticks so the flex layout and SVGs reflow before capture
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      // Stamp each mermaid SVG with its actual rendered pixel dimensions.
+      // When html2canvas serialises an SVG as a standalone image, width="100%"
+      // loses its parent context and the browser may use the raw viewBox width
+      // as the intrinsic size — making large-viewBox diagrams appear tiny.
+      // Setting a concrete px width/height before capture avoids this.
+      const mermaidSvgs = Array.from(preview.querySelectorAll('.mermaid svg'));
+      const savedSvgDims = mermaidSvgs.map(svg => {
+        const r = svg.getBoundingClientRect();
+        const w = Math.round(r.width);
+        const h = Math.round(r.height);
+        const prev = { w: svg.getAttribute('width'), h: svg.getAttribute('height') };
+        svg.setAttribute('width',  w);
+        svg.setAttribute('height', h);
+        return prev;
+      });
+
+      try {
+        await html2pdf().set({
+          margin: 10,
+          filename,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 1, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        }).from(preview).save();
+      } finally {
+        // Restore SVG dimension attributes
+        mermaidSvgs.forEach((svg, i) => {
+          const p = savedSvgDims[i];
+          p.w !== null ? svg.setAttribute('width',  p.w) : svg.removeAttribute('width');
+          p.h !== null ? svg.setAttribute('height', p.h) : svg.removeAttribute('height');
+        });
+        if (editorPane) editorPane.style.display = savedEditor;
+        if (menuEl)    menuEl.style.display    = savedMenu;
+        handles.forEach(h => { h.style.display = ''; });
+        preview.style.overflow = savedOverflow;
+        preview.style.height   = savedHeight;
+      }
     });
   }
 
