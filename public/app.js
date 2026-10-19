@@ -1288,7 +1288,6 @@
     if (preview) preview.innerHTML = '';
     // Hide publish + export buttons when no story is open
     if (togglePublishEl) togglePublishEl.style.display = 'none';
-    if (btnExportStory) btnExportStory.style.display = 'none';
     if (exportBtnWrap) exportBtnWrap.style.display = 'none';
     storyPublished = false;
     refreshGlobalTodoBadge();
