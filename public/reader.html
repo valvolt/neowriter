@@ -8,6 +8,7 @@
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
   <script src="/marked.min.js"></script>
   <script src="/purify.min.js"></script>
+  <script src="/mermaid.min.js"></script>
   <!-- emoji shortcode rendering (:smile: → 😄) -->
   <script src="/emoji.js"></script>
   <style>
@@ -149,6 +150,50 @@
   </main>
 
   <script>
+    if (typeof mermaid !== 'undefined') {
+      try { mermaid.initialize({ startOnLoad: false, securityLevel: 'antiscript' }); } catch (e) {}
+    }
+
+    function decodeHtmlEntities(html) {
+      const tmp = document.createElement('textarea');
+      tmp.innerHTML = html;
+      return tmp.value;
+    }
+
+    function renderMermaidDiagrams(container) {
+      if (!container || typeof mermaid === 'undefined') return;
+      const codeBlocks = container.querySelectorAll('pre code.language-mermaid, code.language-mermaid');
+      if (!codeBlocks || codeBlocks.length === 0) return;
+      codeBlocks.forEach((code) => {
+        const pre = code.closest('pre') || code.parentElement;
+        if (!pre || !pre.parentNode) return;
+        let diagramText = (code.textContent || '').trim();
+        if (!diagramText) diagramText = decodeHtmlEntities(code.innerHTML || '').trim();
+        if (!diagramText) return;
+        const mermaidDiv = document.createElement('div');
+        mermaidDiv.className = 'mermaid';
+        mermaidDiv.textContent = diagramText;
+        pre.parentNode.replaceChild(mermaidDiv, pre);
+      });
+      try {
+        if (typeof mermaid.init === 'function') {
+          const nodes = container.querySelectorAll('.mermaid');
+          try { mermaid.init(undefined, nodes); } catch (e) { console.warn('mermaid.init failed', e); }
+        }
+        if (mermaid.mermaidAPI && typeof mermaid.mermaidAPI.render === 'function') {
+          container.querySelectorAll('.mermaid').forEach((div) => {
+            const txt = div.textContent || '';
+            if (!txt.trim()) return;
+            const id = 'mermaid-' + Math.random().toString(36).slice(2, 9);
+            try { mermaid.mermaidAPI.render(id, txt, (svgCode) => { div.innerHTML = svgCode; }, div); }
+            catch (e) { console.error('mermaid render failed', e); }
+          });
+        }
+      } catch (e) { console.error('Error rendering mermaid diagrams', e); }
+    }
+  </script>
+
+  <script>
     (async () => {
       const contentEl = document.getElementById('content');
       const titleEl = document.getElementById('story-title');
@@ -254,6 +299,7 @@
           }
           rendered = rendered.replace(/<hr\s*\/?>/gi, '<p style="text-align:center;letter-spacing:1em;margin:1em 0;">✦✦✦</p>');
           contentEl.innerHTML = rendered;
+          renderMermaidDiagrams(contentEl);
         } else {
           contentEl.innerHTML = '<pre>' + markdown.replace(/</g, '&lt;') + '</pre>';
         }
