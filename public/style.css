@@ -468,6 +468,9 @@ footer{
   pointer-events:none;
 }
 
+/* Mermaid diagrams — responsive SVGs */
+#preview .mermaid svg { width: 100% !important; height: auto !important; max-width: 100%; }
+
 /* Export dropdown */
 .export-dropdown{
   position:absolute;

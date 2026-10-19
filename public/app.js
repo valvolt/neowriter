@@ -1179,7 +1179,25 @@
         margin: 10,
         filename,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          onclone: (clonedDoc) => {
+            const el = clonedDoc.getElementById('preview');
+            if (el) {
+              el.style.width = '800px';
+              el.style.maxWidth = '800px';
+              el.style.overflow = 'visible';
+              el.style.height = 'auto';
+            }
+            clonedDoc.querySelectorAll('.mermaid svg').forEach(svg => {
+              svg.style.width = '100%';
+              svg.style.height = 'auto';
+              svg.removeAttribute('width');
+              svg.removeAttribute('height');
+            });
+          }
+        },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
       }).from(preview).save();
     });
