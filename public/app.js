@@ -1172,7 +1172,16 @@
   if (exportOptPdf) {
     exportOptPdf.addEventListener('click', () => {
       exportDropdown.style.display = 'none';
-      window.print();
+      const preview = document.getElementById('preview');
+      if (!preview) return;
+      const filename = (currentStoryName || 'story').replace(/[^a-z0-9_\-]/gi, '_') + '.pdf';
+      html2pdf().set({
+        margin: 10,
+        filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      }).from(preview).save();
     });
   }
 

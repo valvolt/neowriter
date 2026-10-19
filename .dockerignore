@@ -5,3 +5,4 @@ node_modules/
 public/purify.min.js
 public/mermaid.min.js
 public/marked.min.js
+public/html2pdf.bundle.min.js
