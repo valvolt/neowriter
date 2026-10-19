@@ -176,18 +176,11 @@
         pre.parentNode.replaceChild(mermaidDiv, pre);
       });
       try {
-        if (typeof mermaid.init === 'function') {
+        if (typeof mermaid.run === 'function') {
+          mermaid.run({ nodes: container.querySelectorAll('.mermaid') });
+        } else if (typeof mermaid.init === 'function') {
           const nodes = container.querySelectorAll('.mermaid');
           try { mermaid.init(undefined, nodes); } catch (e) { console.warn('mermaid.init failed', e); }
-        }
-        if (mermaid.mermaidAPI && typeof mermaid.mermaidAPI.render === 'function') {
-          container.querySelectorAll('.mermaid').forEach((div) => {
-            const txt = div.textContent || '';
-            if (!txt.trim()) return;
-            const id = 'mermaid-' + Math.random().toString(36).slice(2, 9);
-            try { mermaid.mermaidAPI.render(id, txt, (svgCode) => { div.innerHTML = svgCode; }, div); }
-            catch (e) { console.error('mermaid render failed', e); }
-          });
         }
       } catch (e) { console.error('Error rendering mermaid diagrams', e); }
     }
@@ -299,30 +292,32 @@
           }
           rendered = rendered.replace(/<hr\s*\/?>/gi, '<p style="text-align:center;letter-spacing:1em;margin:1em 0;">✦✦✦</p>');
           contentEl.innerHTML = rendered;
+          // Arrow replacements must run before renderMermaidDiagrams: the walker skips
+          // content inside <pre><code> (mermaid source), but after renderMermaidDiagrams
+          // moves that source into <div class="mermaid">, the walker would corrupt -->
+          // into → before mermaid parses it, causing a syntax error.
+          const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, null, false);
+          let node;
+          while ((node = walker.nextNode())) {
+            if (!node.parentElement) continue;
+            if (node.parentElement.closest('code, pre')) continue;
+            node.nodeValue = node.nodeValue
+              .replace(/<-->|<-->/g, '\u2194')
+              .replace(/-->|-->/g, '\u2192')
+              .replace(/<--|<--/g, '\u2190')
+              .replace(/<==>|<==>/g, '\u21D4')
+              .replace(/==>|==>/g, '\u21D2')
+              .replace(/<==|<==/g, '\u21D0')
+              .replace(/\[\.\]|\[\.\]/g, '⚀')
+              .replace(/\[\.\.\]|\[\.\.\]/g, '⚁')
+              .replace(/\[\.\.\.\]|\[\.\.\.\]/g, '⚂')
+              .replace(/\[\.\.\.\.\]|\[\.\.\.\.\]/g, '⚃')
+              .replace(/\[\.\.\.\.\.\]|\[\.\.\.\.\.\]/g, '⚄')
+              .replace(/\[\.\.\.\.\.\.\]|\[\.\.\.\.\.\.\]/g, '⚅');
+          }
           renderMermaidDiagrams(contentEl);
         } else {
           contentEl.innerHTML = '<pre>' + markdown.replace(/</g, '&lt;') + '</pre>';
-        }
-
-        // Post-process: arrow replacements
-        const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while ((node = walker.nextNode())) {
-          if (!node.parentElement) continue;
-          if (node.parentElement.closest('code, pre')) continue;
-          node.nodeValue = node.nodeValue
-            .replace(/<-->|<-->/g, '\u2194')
-            .replace(/-->|-->/g, '\u2192')
-            .replace(/<--|<--/g, '\u2190')
-            .replace(/<==>|<==>/g, '\u21D4')
-            .replace(/==>|==>/g, '\u21D2')
-            .replace(/<==|<==/g, '\u21D0')
-            .replace(/\[\.\]|\[\.\]/g, '⚀')
-            .replace(/\[\.\.\]|\[\.\.\]/g, '⚁')
-            .replace(/\[\.\.\.\]|\[\.\.\.\]/g, '⚂')
-            .replace(/\[\.\.\.\.\]|\[\.\.\.\.\]/g, '⚃')
-            .replace(/\[\.\.\.\.\.\]|\[\.\.\.\.\.\]/g, '⚄')
-            .replace(/\[\.\.\.\.\.\.\]|\[\.\.\.\.\.\.\]/g, '⚅');
         }
 
       } catch (e) {
