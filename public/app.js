@@ -314,7 +314,7 @@
     }
   }
 
-  function renderMermaidDiagrams(container) {
+  async function renderMermaidDiagrams(container) {
     if (!container || typeof mermaid === 'undefined') return;
     const codeBlocks = container.querySelectorAll('pre code.language-mermaid, code.language-mermaid');
     if (!codeBlocks || codeBlocks.length === 0) return;
@@ -333,24 +333,9 @@
     });
 
     try {
-      if (typeof mermaid.init === 'function') {
-        const nodes = container.querySelectorAll('.mermaid');
-        try { mermaid.init(undefined, nodes); } catch (e) {
-          console.warn('mermaid.init failed', e);
-        }
-      }
-      if (mermaid.mermaidAPI && typeof mermaid.mermaidAPI.render === 'function') {
-        container.querySelectorAll('.mermaid').forEach((div) => {
-          const txt = div.textContent || '';
-          if (!txt.trim()) return;
-          const id = 'mermaid-' + Math.random().toString(36).slice(2, 9);
-          try {
-            mermaid.mermaidAPI.render(id, txt, (svgCode) => { div.innerHTML = svgCode; }, div);
-          } catch (e) { console.error('mermaid render failed', e); }
-        });
-      }
+      await mermaid.run({ nodes: Array.from(container.querySelectorAll('.mermaid')) });
     } catch (e) {
-      console.error('Error rendering mermaid diagrams', e);
+      console.error('mermaid render failed', e);
     }
   }
 
@@ -1176,31 +1161,33 @@
       if (!preview) return;
       const filename = (currentStoryName || 'story').replace(/[^a-z0-9_\-]/gi, '_') + '.pdf';
 
-      // Temporarily collapse the split-pane so #render-pane fills the full window
-      // width. html2canvas uses getBoundingClientRect() on the live element to
-      // determine the capture area, so the DOM must actually be wide before capture.
+      const renderPane = document.getElementById('render-pane');
       const editorPane = document.getElementById('editor-pane');
-      const menuEl    = document.getElementById('menu');
-      const handles   = document.querySelectorAll('.resize-handle');
-      const savedEditor  = editorPane ? editorPane.style.display : null;
-      const savedMenu    = menuEl    ? menuEl.style.display    : null;
-      const savedOverflow = preview.style.overflow;
-      const savedHeight   = preview.style.height;
+      const menuEl     = document.getElementById('menu');
+      const handles    = document.querySelectorAll('.resize-handle');
 
+      const savedRenderW   = renderPane ? renderPane.style.width    : null;
+      const savedRenderMW  = renderPane ? renderPane.style.maxWidth : null;
+      const savedEditor    = editorPane ? editorPane.style.display  : null;
+      const savedMenu      = menuEl     ? menuEl.style.display     : null;
+      const savedOverflow  = preview.style.overflow;
+      const savedHeight    = preview.style.height;
+
+      // Hide panels and cap render-pane to 900px. Capping prevents chrome's
+      // ~32,767px canvas height limit from being hit on long documents with
+      // many tall mermaid diagrams.
       if (editorPane) editorPane.style.display = 'none';
-      if (menuEl)    menuEl.style.display    = 'none';
+      if (menuEl)     menuEl.style.display     = 'none';
       handles.forEach(h => { h.style.display = 'none'; });
+      if (renderPane) { renderPane.style.width = '900px'; renderPane.style.maxWidth = '900px'; }
       preview.style.overflow = 'visible';
       preview.style.height   = 'auto';
 
       // Two rAF ticks so the flex layout and SVGs reflow before capture
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-      // Stamp each mermaid SVG with its actual rendered pixel dimensions.
-      // When html2canvas serialises an SVG as a standalone image, width="100%"
-      // loses its parent context and the browser may use the raw viewBox width
-      // as the intrinsic size — making large-viewBox diagrams appear tiny.
-      // Setting a concrete px width/height before capture avoids this.
+      // Stamp mermaid SVG pixel dimensions so html2canvas serialises them at
+      // their rendered size rather than the raw viewBox dimensions.
       const mermaidSvgs = Array.from(preview.querySelectorAll('.mermaid svg'));
       const savedSvgDims = mermaidSvgs.map(svg => {
         const r = svg.getBoundingClientRect();
@@ -1212,23 +1199,91 @@
         return prev;
       });
 
+      // Record HR cut positions (container-relative Y of element after each HR),
+      // then hide the HRs. We do NOT add spacers — spacers bloat canvas height and
+      // trigger the canvas max-size error on long documents. Instead we do custom
+      // post-render slicing that snaps page cuts to HR positions.
+      const A4_INNER_RATIO = 277 / 190; // (297-20)mm / (210-20)mm
+      const previewRect = preview.getBoundingClientRect();
+      const hrEls = Array.from(preview.querySelectorAll('hr'));
+      const hrCuts = [];
+      hrEls.forEach(hr => {
+        let next = hr.nextElementSibling;
+        if (!next && hr.parentElement !== preview) next = hr.parentElement.nextElementSibling;
+        if (next) hrCuts.push(Math.round(next.getBoundingClientRect().top - previewRect.top));
+        hr.style.display = 'none';
+      });
+      hrCuts.sort((a, b) => a - b);
+
+      const pdfOpts = {
+        margin: 10,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 1, useCORS: true },
+        pagebreak: { mode: [] },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
       try {
-        await html2pdf().set({
-          margin: 10,
-          filename,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 1, useCORS: true },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        }).from(preview).save();
+        // Render the full document to a single canvas (natural height, no spacers).
+        const canvas = await html2pdf().set(pdfOpts).from(preview)
+          .toCanvas().then(function () { return this.prop.canvas; });
+
+        // Obtain the jsPDF constructor by rendering a throw-away 1px element.
+        const dummyEl = document.createElement('div');
+        dummyEl.style.cssText = 'width:1px;height:1px;position:fixed;left:-9999px;';
+        document.body.appendChild(dummyEl);
+        const dummyPdf = await html2pdf().set(pdfOpts).from(dummyEl)
+          .toPdf().then(function () { return this.prop.pdf; });
+        document.body.removeChild(dummyEl);
+        const JsPDF = dummyPdf.constructor;
+
+        // pxPageH: canvas pixels per A4 inner page (canvas.width × aspect ratio).
+        // Each slice is at most pxPageH tall; HR cuts end a page early so the next
+        // section starts at the top of the following page.
+        const pxPageH   = Math.floor(canvas.width * A4_INNER_RATIO);
+        const MARGIN_MM = 10;
+        const IW_MM     = 190; // inner width  (210 - 2×10)
+        const IH_MM     = 277; // inner height (297 - 2×10)
+
+        const slices = [];
+        let y = 0, hi = 0;
+        while (y < canvas.height) {
+          const naturalEnd = y + pxPageH;
+          while (hi < hrCuts.length && hrCuts[hi] <= y) hi++;
+          const end = (hi < hrCuts.length && hrCuts[hi] < naturalEnd)
+            ? hrCuts[hi++]
+            : Math.min(naturalEnd, canvas.height);
+          if (end > y) slices.push({ start: y, end });
+          y = end;
+        }
+
+        const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+        for (let i = 0; i < slices.length; i++) {
+          if (i > 0) pdf.addPage();
+          const { start, end } = slices[i];
+          const sliceH   = end - start;
+          const sliceHMm = (sliceH / pxPageH) * IH_MM;
+          const sc       = document.createElement('canvas');
+          sc.width  = canvas.width;
+          sc.height = sliceH;
+          sc.getContext('2d').drawImage(canvas, 0, start, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+          pdf.addImage(sc.toDataURL('image/jpeg', 0.98), 'JPEG', MARGIN_MM, MARGIN_MM, IW_MM, sliceHMm);
+        }
+        pdf.save(filename);
+
       } finally {
-        // Restore SVG dimension attributes
+        // Restore SVG dimensions
         mermaidSvgs.forEach((svg, i) => {
           const p = savedSvgDims[i];
           p.w !== null ? svg.setAttribute('width',  p.w) : svg.removeAttribute('width');
           p.h !== null ? svg.setAttribute('height', p.h) : svg.removeAttribute('height');
         });
+        // Restore HR visibility
+        hrEls.forEach(hr => { hr.style.display = ''; });
+        // Restore layout
+        if (renderPane) { renderPane.style.width = savedRenderW; renderPane.style.maxWidth = savedRenderMW; }
         if (editorPane) editorPane.style.display = savedEditor;
-        if (menuEl)    menuEl.style.display    = savedMenu;
+        if (menuEl)     menuEl.style.display     = savedMenu;
         handles.forEach(h => { h.style.display = ''; });
         preview.style.overflow = savedOverflow;
         preview.style.height   = savedHeight;
