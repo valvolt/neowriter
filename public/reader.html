@@ -269,6 +269,20 @@
         // content is escaped rather than injected into the DOM.
         if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
           marked.use({
+            extensions: [{
+              name: 'underline',
+              level: 'inline',
+              start(src) { return src.indexOf('++'); },
+              tokenizer(src) {
+                const match = src.match(/^\+\+(.+?)\+\+/);
+                if (match) {
+                  return { type: 'underline', raw: match[0], tokens: this.lexer.inlineTokens(match[1]) };
+                }
+              },
+              renderer(token) {
+                return `<u>${this.parser.parseInline(token.tokens)}</u>`;
+              }
+            }],
             renderer: {
               html(token) {
                 const raw = typeof token === 'string' ? token : (token.raw || token.text || '');

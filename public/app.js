@@ -342,6 +342,20 @@
   // Configure marked: open links in new tab + sanitize raw HTML
   if (typeof marked !== 'undefined') {
     marked.use({
+      extensions: [{
+        name: 'underline',
+        level: 'inline',
+        start(src) { return src.indexOf('++'); },
+        tokenizer(src) {
+          const match = src.match(/^\+\+(.+?)\+\+/);
+          if (match) {
+            return { type: 'underline', raw: match[0], tokens: this.lexer.inlineTokens(match[1]) };
+          }
+        },
+        renderer(token) {
+          return `<u>${this.parser.parseInline(token.tokens)}</u>`;
+        }
+      }],
       renderer: {
         // Escape raw HTML blocks/inline so they display as text, not rendered HTML
         html(token) {
@@ -809,7 +823,9 @@
           .replace(/\*([^*]+)\*/g, '$1') // italic
           .replace(/__([^_]+)__/g, '$1') // bold
           .replace(/_([^_]+)_/g, '$1') // italic
+          .replace(/~~([^~]+)~~/g, '$1') // strikethrough
           .replace(/`([^`]+)`/g, '$1') // inline code
+          .replace(/\+\+([^+]+)\+\+/g, '$1') // underline
           .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
           .replace(/^[-*+]\s+/, '') // list items
           .replace(/^\d+\.\s+/, ''); // numbered list
