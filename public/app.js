@@ -2107,8 +2107,9 @@
   // Count occurrences of a highlight name across all tiles
   function countHighlightOccurrences(name) {
     if (!name) return 0;
-    const fullText = tilesOrder.map(f => tilesCache[f] || '').join('\n\n');
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Normalize both the name and tile text so \b works for non-ASCII chars (e.g. õ, é)
+    const fullText = tilesOrder.map(f => normalizeSearch(tilesCache[f] || '')).join('\n\n');
+    const escaped = normalizeSearch(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
     const matches = fullText.match(regex);
     return matches ? matches.length : 0;
