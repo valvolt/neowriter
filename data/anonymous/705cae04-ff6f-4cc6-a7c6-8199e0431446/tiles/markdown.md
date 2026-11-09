@@ -62,7 +62,7 @@ a code block
 
 
 ## Horizontal rule
-Three dashes on their own line produce a divider:
+Three dashes on their own line produce a divider (web rendering) or a page break (PDF export):
 
 
 
