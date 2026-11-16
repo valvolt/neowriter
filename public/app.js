@@ -1388,7 +1388,7 @@
     });
   }
 
-  async function showStoryList() {
+  async function showStoryList({ updateUrl = true } = {}) {
     clearTimeout(saveTimer);
     saveTimer = null;
     await saveCurrent();
@@ -1424,9 +1424,12 @@
     refreshGlobalTodoBadge();
     updateEditorRuler();
     setMobileTab('files');
+    if (updateUrl) {
+      history.pushState({ type: 'story-list' }, '', '/');
+    }
   }
 
-  async function showBinder(storyId, storyName) {
+  async function showBinder(storyId, storyName, { targetTile, targetHighlight, updateUrl = true } = {}) {
     currentStoryId = storyId;
     currentStoryName = storyName;
     currentWordTarget = cachedStoryList.find(i => i.id === storyId)?.wordTarget || 0;
@@ -1458,12 +1461,17 @@
     loadTilesList();
     loadHighlightsList();
     refreshTodoBadge();
-    const matchingTiles = getMatchingTiles();
-    const tileToOpen = matchingTiles !== null
-      ? (matchingTiles.length > 0 ? matchingTiles[0] : null)
-      : tilesOrder[0];
-    if (tileToOpen) {
-      await openTile(tileToOpen);
+    const defaultTile = (() => {
+      const matchingTiles = getMatchingTiles();
+      return matchingTiles !== null
+        ? (matchingTiles.length > 0 ? matchingTiles[0] : null)
+        : tilesOrder[0];
+    })();
+
+    if (targetHighlight) {
+      await openHighlight(targetHighlight, undefined, { updateUrl });
+    } else if (targetTile || defaultTile) {
+      await openTile(targetTile || defaultTile, undefined, { updateUrl });
     } else {
       renderPreview();
     }
@@ -2047,7 +2055,7 @@
     return li;
   }
 
-  async function openTile(filename, lineIndex) {
+  async function openTile(filename, lineIndex, { updateUrl = true } = {}) {
     if (!currentStoryId) return;
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -2056,6 +2064,13 @@
     setMobileTab('write');
     currentTileFilename = filename;
     currentHighlightFilename = null;
+    if (updateUrl) {
+      history.pushState(
+        { type: 'tile', storyName: currentStoryName, filename },
+        '',
+        `/${encodeURIComponent(currentStoryName)}/tile/${encodeURIComponent(filename)}`
+      );
+    }
     if (binderTodoEntry) binderTodoEntry.classList.remove('active');
     const content = tilesCache[filename] || '';
     if (editor) {
@@ -2319,7 +2334,7 @@
     return li;
   }
 
-  async function openHighlight(filename, lineIndex) {
+  async function openHighlight(filename, lineIndex, { updateUrl = true } = {}) {
     if (!currentStoryId) return;
     clearTimeout(saveTimer);
     saveTimer = null;
@@ -2330,6 +2345,13 @@
       setMobileTab('write');
       currentHighlightFilename = filename;
       currentTileFilename = null;
+      if (updateUrl) {
+        history.pushState(
+          { type: 'highlight', storyName: currentStoryName, filename },
+          '',
+          `/${encodeURIComponent(currentStoryName)}/highlight/${encodeURIComponent(filename)}`
+        );
+      }
       if (binderTodoEntry) binderTodoEntry.classList.remove('active');
       // Update tooltip cache with fresh content
       highlightsContentCache[filename] = res.content || '';
@@ -3335,9 +3357,79 @@
     }
   });
 
+  // --- URL-based navigation ---
+  window.addEventListener('popstate', async (event) => {
+    const state = event.state;
+    if (!state || state.type === 'story-list') {
+      showStoryList({ updateUrl: false });
+      return;
+    }
+    if (state.type === 'tile' && state.storyName && state.filename) {
+      if (state.storyName !== currentStoryName) {
+        const story = cachedStoryList.find(s => s.name === state.storyName);
+        if (!story) { showStoryList({ updateUrl: false }); return; }
+        await showBinder(story.id, story.name, { targetTile: state.filename, updateUrl: false });
+      } else {
+        await openTile(state.filename, undefined, { updateUrl: false });
+      }
+      return;
+    }
+    if (state.type === 'highlight' && state.storyName && state.filename) {
+      if (state.storyName !== currentStoryName) {
+        const story = cachedStoryList.find(s => s.name === state.storyName);
+        if (!story) { showStoryList({ updateUrl: false }); return; }
+        await showBinder(story.id, story.name, { targetHighlight: state.filename, updateUrl: false });
+      } else {
+        await openHighlight(state.filename, undefined, { updateUrl: false });
+      }
+    }
+  });
+
   // --- Initial load ---
-  showStoryList();
-  loadList();
+  // Use an async IIFE so showBinder never races with showStoryList.
+  // For a deep-link URL we skip showStoryList entirely and go straight to showBinder
+  // once loadList() has populated cachedStoryList.  For a plain "/" URL we call
+  // showStoryList() immediately (fire-and-forget) so the UI frame appears before the
+  // network response, then replaceState after loadList() to seed history.
+  (async () => {
+    const path = window.location.pathname;
+    const tileMatch = path.match(/^\/([^/]+)\/tile\/(.+)$/);
+    const hlMatch   = path.match(/^\/([^/]+)\/highlight\/(.+)$/);
+    const storyOnly = path.match(/^\/([^/]+)\/?$/);
+    const anyMatch  = tileMatch || hlMatch || storyOnly;
+
+    if (!anyMatch) {
+      // Plain "/" — show empty frame immediately while list loads.
+      showStoryList({ updateUrl: false });
+    }
+
+    await loadList();
+
+    if (!anyMatch) {
+      history.replaceState({ type: 'story-list' }, '', '/');
+      return;
+    }
+
+    const storyName = decodeURIComponent(anyMatch[1]);
+    const filename  = anyMatch[2] ? decodeURIComponent(anyMatch[2]) : null;
+    const story     = cachedStoryList.find(s => s.name === storyName);
+
+    if (!story) {
+      await showStoryList({ updateUrl: false });
+      history.replaceState({ type: 'story-list' }, '', '/');
+      return;
+    }
+
+    if (tileMatch) {
+      history.replaceState({ type: 'tile', storyName, filename }, '', path);
+      await showBinder(story.id, story.name, { targetTile: filename, updateUrl: false });
+    } else if (hlMatch) {
+      history.replaceState({ type: 'highlight', storyName, filename }, '', path);
+      await showBinder(story.id, story.name, { targetHighlight: filename, updateUrl: false });
+    } else {
+      await showBinder(story.id, story.name);
+    }
+  })();
 
   // Expose for debugging
   window._neo = { loadList, openTile, openHighlight, saveCurrent, renderPreview, showBinder, showStoryList };
