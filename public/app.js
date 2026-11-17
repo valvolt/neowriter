@@ -2552,16 +2552,148 @@
   function updateBreadcrumb() {
     const storyLabel = currentStoryName || '';
     let itemLabel = '';
+    let itemRenameHandler = null;
     if (editMode === 'tile' && currentTileFilename) {
       itemLabel = tileNamesCache[currentTileFilename] || currentTileFilename.replace(/\.md$/, '');
+      itemRenameHandler = renameCurrentTile;
     } else if (editMode === 'highlight' && currentHighlightFilename) {
       itemLabel = highlightNamesCache[currentHighlightFilename] || currentHighlightFilename.replace(/\.md$/, '');
+      itemRenameHandler = renameCurrentHighlight;
     } else if (editMode === 'todo') {
       itemLabel = 'Todo';
     }
+
+    // Build interactive breadcrumb in the header
+    if (openStoryEl) {
+      openStoryEl.innerHTML = '';
+      if (storyLabel) {
+        const storySpan = document.createElement('span');
+        storySpan.textContent = storyLabel;
+        storySpan.className = 'breadcrumb-part';
+        storySpan.title = 'Click to rename story';
+        storySpan.addEventListener('click', renameCurrentStory);
+        openStoryEl.appendChild(storySpan);
+      }
+      if (itemLabel) {
+        openStoryEl.appendChild(document.createTextNode(' \u203A '));
+        const itemSpan = document.createElement('span');
+        itemSpan.textContent = itemLabel;
+        if (itemRenameHandler) {
+          itemSpan.className = 'breadcrumb-part';
+          itemSpan.title = 'Click to rename';
+          itemSpan.addEventListener('click', itemRenameHandler);
+        }
+        openStoryEl.appendChild(itemSpan);
+      }
+    }
+
     const breadcrumb = itemLabel ? `${storyLabel} \u203A ${itemLabel}` : storyLabel;
-    if (openStoryEl) openStoryEl.textContent = breadcrumb;
     if (currentName) currentName.textContent = breadcrumb;
+  }
+
+  async function renameCurrentStory() {
+    if (!currentStoryId) return;
+    const newName = prompt('Story name', currentStoryName);
+    if (!newName || newName === currentStoryName) return;
+    try {
+      await api(`/api/rename/${currentStoryId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      });
+      currentStoryName = newName;
+      applyHighlight(binderStoryName, newName, filterQuery);
+      // Update URL: swap the story-name segment
+      const s = history.state;
+      if (s && s.storyName) {
+        let newPath;
+        if (s.type === 'tile' && s.filename) {
+          newPath = `/${encodeURIComponent(newName)}/tile/${encodeURIComponent(s.filename)}`;
+        } else if (s.type === 'highlight' && s.filename) {
+          newPath = `/${encodeURIComponent(newName)}/highlight/${encodeURIComponent(s.filename)}`;
+        }
+        if (newPath) history.replaceState({ ...s, storyName: newName }, '', newPath);
+      }
+      await loadList();
+      updateBreadcrumb();
+    } catch (e) {
+      console.error('rename story failed', e);
+      alert('Rename failed');
+    }
+  }
+
+  async function renameCurrentTile() {
+    if (!currentStoryId || !currentTileFilename) return;
+    const displayName = tileNamesCache[currentTileFilename] || currentTileFilename.replace(/\.md$/, '');
+    const newName = prompt('Tile name', displayName);
+    if (!newName) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/tiles/${currentTileFilename}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      });
+      if (res.filename && res.filename !== currentTileFilename) {
+        const content = tilesCache[currentTileFilename] || '';
+        delete tilesCache[currentTileFilename];
+        delete tileNamesCache[currentTileFilename];
+        tilesCache[res.filename] = content;
+        const idx = tilesOrder.indexOf(currentTileFilename);
+        if (idx !== -1) tilesOrder[idx] = res.filename;
+        currentTileFilename = res.filename;
+      }
+      tileNamesCache[res.filename || currentTileFilename] = res.name || newName;
+      updateBreadcrumb();
+      await refreshFilterResults();
+      loadTilesList();
+      openTile(res.filename || currentTileFilename);
+    } catch (e) {
+      console.error('rename tile failed', e);
+      alert('Rename failed');
+    }
+  }
+
+  async function renameCurrentHighlight() {
+    if (!currentStoryId || !currentHighlightFilename) return;
+    const displayName = highlightNamesCache[currentHighlightFilename] || currentHighlightFilename.replace(/\.md$/, '');
+    const newName = prompt('Highlight name', displayName);
+    if (!newName) return;
+    try {
+      const res = await api(`/api/story/${currentStoryId}/highlights/${currentHighlightFilename}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      });
+      if (res.filename) {
+        const escapedOld = displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const replaceRegex = new RegExp(`\\b${escapedOld}\\b`, 'gi');
+        for (const tf of tilesOrder) {
+          if (tilesCache[tf]) {
+            tilesCache[tf] = tilesCache[tf].replace(replaceRegex, (match) => {
+              if (match === match.toUpperCase()) return newName.toUpperCase();
+              if (match[0] === match[0].toUpperCase()) return newName.charAt(0).toUpperCase() + newName.slice(1);
+              return newName.toLowerCase();
+            });
+          }
+        }
+        if (res.filename !== currentHighlightFilename) {
+          const cachedContent = highlightsContentCache[currentHighlightFilename];
+          if (cachedContent !== undefined) {
+            highlightsContentCache[res.filename] = cachedContent;
+            delete highlightsContentCache[currentHighlightFilename];
+          }
+          currentHighlightFilename = res.filename;
+        }
+      }
+      await fetchHighlightsList();
+      await refreshFilterResults();
+      loadHighlightsList();
+      renderPreview();
+      openHighlight(res.filename || currentHighlightFilename);
+    } catch (e) {
+      console.error('rename highlight failed', e);
+      alert('Rename failed');
+    }
   }
 
   // --- Autosave ---

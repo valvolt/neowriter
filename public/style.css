@@ -49,6 +49,14 @@ header h1{
   text-overflow:ellipsis;
   white-space:nowrap;
 }
+.breadcrumb-part{
+  cursor:pointer;
+  transition:color 0.15s;
+}
+.breadcrumb-part:hover{
+  color:var(--accent);
+  text-decoration:underline;
+}
 .header-spacer{
   flex:1;
   min-width:8px;
@@ -158,6 +166,12 @@ main{
   flex-direction:column;
   flex:1;
   overflow:hidden;
+  min-height:0;
+}
+.binder-scroll{
+  flex:1;
+  overflow-y:auto;
+  min-height:0;
 }
 .binder-header{
   display:flex;
@@ -219,8 +233,6 @@ main{
   list-style:none;
   margin:0;
   padding:0;
-  overflow:auto;
-  flex:1;
 }
 .tile-item{
   display:flex;
