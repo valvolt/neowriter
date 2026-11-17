@@ -2007,7 +2007,7 @@
       history.pushState(
         { type: 'tile', storyName: currentStoryName, filename },
         '',
-        `/${encodeURIComponent(currentStoryName)}/tile/${encodeURIComponent(filename)}`
+        `/${encodeURIComponent(currentStoryName)}/tile/${encodeURIComponent(filename.replace(/\.md$/, ''))}`
       );
     }
     if (binderTodoEntry) binderTodoEntry.classList.remove('active');
@@ -2233,7 +2233,7 @@
         history.pushState(
           { type: 'highlight', storyName: currentStoryName, filename },
           '',
-          `/${encodeURIComponent(currentStoryName)}/highlight/${encodeURIComponent(filename)}`
+          `/${encodeURIComponent(currentStoryName)}/highlight/${encodeURIComponent(filename.replace(/\.md$/, ''))}`
         );
       }
       if (binderTodoEntry) binderTodoEntry.classList.remove('active');
@@ -2492,9 +2492,9 @@
       if (s && s.storyName) {
         let newPath;
         if (s.type === 'tile' && s.filename) {
-          newPath = `/${encodeURIComponent(newName)}/tile/${encodeURIComponent(s.filename)}`;
+          newPath = `/${encodeURIComponent(newName)}/tile/${encodeURIComponent(s.filename.replace(/\.md$/, ''))}`;
         } else if (s.type === 'highlight' && s.filename) {
-          newPath = `/${encodeURIComponent(newName)}/highlight/${encodeURIComponent(s.filename)}`;
+          newPath = `/${encodeURIComponent(newName)}/highlight/${encodeURIComponent(s.filename.replace(/\.md$/, ''))}`;
         }
         if (newPath) history.replaceState({ ...s, storyName: newName }, '', newPath);
       }
@@ -3427,7 +3427,8 @@
     }
 
     const storyName = decodeURIComponent(anyMatch[1]);
-    const filename  = anyMatch[2] ? decodeURIComponent(anyMatch[2]) : null;
+    const rawFile   = anyMatch[2] ? decodeURIComponent(anyMatch[2]) : null;
+    const filename  = rawFile ? (rawFile.endsWith('.md') ? rawFile : rawFile + '.md') : null;
     const story     = cachedStoryList.find(s => s.name === storyName);
 
     if (!story) {
