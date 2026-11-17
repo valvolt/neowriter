@@ -59,11 +59,12 @@ test('rename story updates list', async ({ page }) => {
   await page.goto('/');
   page.once('dialog', d => d.accept('Original Name'));
   await page.click('#btn-new');
-  await page.click('#btn-back');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
 
   page.once('dialog', d => d.accept('Renamed Story'));
-  await page.locator('#story-list .btn-rename').click();
+  await page.locator('#open-story-name .breadcrumb-part').first().click();
 
+  await page.click('#btn-back');
   await expect(page.locator('#story-list .story-name')).toHaveText('Renamed Story');
 });
 
@@ -71,11 +72,12 @@ test('cancel rename keeps original name', async ({ page }) => {
   await page.goto('/');
   page.once('dialog', d => d.accept('Keep Me'));
   await page.click('#btn-new');
-  await page.click('#btn-back');
+  await expect(page.locator('#editor')).not.toHaveAttribute('disabled');
 
   page.once('dialog', d => d.dismiss());
-  await page.locator('#story-list .btn-rename').click();
+  await page.locator('#open-story-name .breadcrumb-part').first().click();
 
+  await page.click('#btn-back');
   await expect(page.locator('#story-list .story-name')).toHaveText('Keep Me');
 });
 

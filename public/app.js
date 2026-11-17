@@ -1513,14 +1513,9 @@
     controls.style.gap = '6px';
     controls.style.alignItems = 'center';
 
-    const renameBtn = document.createElement('button');
-    renameBtn.className = 'btn-rename';
-    renameBtn.textContent = 'Ren';
-    controls.appendChild(renameBtn);
-
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn-delete';
-    deleteBtn.textContent = 'Del';
+    deleteBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>';
     deleteBtn.title = 'Delete story';
     controls.appendChild(deleteBtn);
 
@@ -1528,23 +1523,6 @@
 
     left.addEventListener('click', () => showBinder(item.id, item.name));
     nameSpan.addEventListener('click', (ev) => { ev.stopPropagation(); showBinder(item.id, item.name); });
-
-    renameBtn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const newName = prompt('New name', item.name || 'Untitled');
-      if (!newName) return;
-      try {
-        await api(`/api/rename/${item.id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName })
-        });
-        await loadList();
-      } catch (e) {
-        console.error('rename failed', e);
-        alert('Rename failed');
-      }
-    });
 
     deleteBtn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
@@ -1977,54 +1955,15 @@
     const controls = document.createElement('div');
     controls.className = 'tile-controls';
 
-    const renameBtn = document.createElement('button');
-    renameBtn.className = 'btn-tile-rename';
-    renameBtn.textContent = 'Ren';
-    renameBtn.title = 'Rename tile';
-    controls.appendChild(renameBtn);
-
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn-tile-delete';
-    deleteBtn.textContent = 'Del';
+    deleteBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>';
     deleteBtn.title = 'Delete tile';
     controls.appendChild(deleteBtn);
 
     li.appendChild(controls);
 
     nameSpan.addEventListener('click', () => openTile(tile.filename));
-
-    renameBtn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const newName = prompt('New tile name', tile.name);
-      if (!newName) return;
-      try {
-        const res = await api(`/api/story/${currentStoryId}/tiles/${tile.filename}/rename`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName })
-        });
-        if (res.filename && res.filename !== tile.filename) {
-          const content = tilesCache[tile.filename] || '';
-          delete tilesCache[tile.filename];
-          delete tileNamesCache[tile.filename];
-          tilesCache[res.filename] = content;
-          const idx = tilesOrder.indexOf(tile.filename);
-          if (idx !== -1) tilesOrder[idx] = res.filename;
-          if (currentTileFilename === tile.filename) {
-            currentTileFilename = res.filename;
-          }
-        }
-        // Update display name cache
-        tileNamesCache[res.filename || tile.filename] = res.name || newName;
-        updateBreadcrumb();
-        await refreshFilterResults();
-        loadTilesList();
-        openTile(res.filename || tile.filename);
-      } catch (e) {
-        console.error('rename tile failed', e);
-        alert('Rename tile failed');
-      }
-    });
 
     deleteBtn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
@@ -2241,70 +2180,15 @@
     const controls = document.createElement('div');
     controls.className = 'tile-controls';
 
-    const renameBtn = document.createElement('button');
-    renameBtn.className = 'btn-tile-rename';
-    renameBtn.textContent = 'Ren';
-    renameBtn.title = 'Rename highlight';
-    controls.appendChild(renameBtn);
-
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn-tile-delete';
-    deleteBtn.textContent = 'Del';
+    deleteBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>';
     deleteBtn.title = 'Delete highlight';
     controls.appendChild(deleteBtn);
 
     li.appendChild(controls);
 
     nameSpan.addEventListener('click', () => openHighlight(hl.filename));
-
-    renameBtn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      const newName = prompt('New highlight name', hl.name);
-      if (!newName) return;
-      try {
-        const res = await api(`/api/story/${currentStoryId}/highlights/${hl.filename}/rename`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName })
-        });
-        if (res.filename) {
-          // Update tiles cache: replace old name with new name in all cached tile content
-          const oldName = hl.name;
-          const escapedOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const replaceRegex = new RegExp(`\\b${escapedOld}\\b`, 'gi');
-          for (const tileFilename of tilesOrder) {
-            if (tilesCache[tileFilename]) {
-              tilesCache[tileFilename] = tilesCache[tileFilename].replace(replaceRegex, (match) => {
-                if (match === match.toUpperCase()) return newName.toUpperCase();
-                if (match[0] === match[0].toUpperCase()) return newName.charAt(0).toUpperCase() + newName.slice(1);
-                return newName.toLowerCase();
-              });
-            }
-          }
-          // Update highlight filename references if it changed
-          if (res.filename !== hl.filename) {
-            const cachedContent = highlightsContentCache[hl.filename];
-            if (cachedContent !== undefined) {
-              highlightsContentCache[res.filename] = cachedContent;
-              delete highlightsContentCache[hl.filename];
-            }
-            if (editMode === 'highlight' && currentHighlightFilename === hl.filename) {
-              currentHighlightFilename = res.filename;
-              updateBreadcrumb();
-            }
-          }
-        }
-        // Re-fetch highlights (order may change due to alphabetical sort)
-        await fetchHighlightsList();
-        await refreshFilterResults();
-        loadHighlightsList();
-        renderPreview();
-        openHighlight(res.filename || hl.filename);
-      } catch (e) {
-        console.error('rename highlight failed', e);
-        alert('Rename highlight failed');
-      }
-    });
 
     deleteBtn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
