@@ -10,6 +10,9 @@
 // - Binder UI: stories contain tiles and highlights sections
 // - Drag-and-drop tile reordering (not for highlights)
 (() => {
+  // Apply dark mode immediately to avoid flash of light theme
+  if (localStorage.getItem('neowriter-dark') === '1') document.body.classList.add('dark');
+
   const api = (path, opts = {}) => {
     opts.headers = { 'X-Requested-With': 'XMLHttpRequest', ...opts.headers };
     return fetch(path, opts).then(r => r.json());
@@ -229,6 +232,15 @@
   const btnImport = $('btn-import');
   const btnImportBinder = $('btn-import-binder');
   const importFileInput = $('import-file-input');
+  const btnDarkMode = $('btn-dark-mode');
+  if (btnDarkMode) {
+    btnDarkMode.textContent = document.body.classList.contains('dark') ? '☀️' : '🌙';
+    btnDarkMode.addEventListener('click', () => {
+      const isDark = document.body.classList.toggle('dark');
+      localStorage.setItem('neowriter-dark', isDark ? '1' : '0');
+      btnDarkMode.textContent = isDark ? '☀️' : '🌙';
+    });
+  }
 
   // Publish toggle
   const togglePublishEl = $('toggle-publish');
