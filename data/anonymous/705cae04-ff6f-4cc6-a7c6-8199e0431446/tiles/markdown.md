@@ -15,13 +15,25 @@
 
 
 ## Emphasis
-*italic* &nbsp; **bold** &nbsp; ***bold italic*** &nbsp; ~~strikethrough~~
-++underline++
+
+| Syntax | Result |
+|---|---|
+| `*italic*` | *italic* |
+| `**bold**` | **bold** |
+| `***bold italic***` | ***bold italic*** |
+| `~~strikethrough~~` | ~~strikethrough~~ |
+| `++underline++` | ++underline++ |
+
 
 
 
 ## Lists
 Unordered:
+```
+* item
+  * nested item
+```
+
 * item
   * nested item
 
@@ -29,6 +41,11 @@ Unordered:
 
 
 Ordered:
+```
+1. First
+2. Second
+```
+
 1. First
 2. Second
 
@@ -36,6 +53,11 @@ Ordered:
 
 
 Checkboxes (interactive todos):
+```
+- [ ] Unchecked
+- [x] Checked
+```
+
 - [ ] Unchecked
 - [x] Checked
 
@@ -43,16 +65,17 @@ Checkboxes (interactive todos):
 
 
 ## Blockquote
+```
+> A quote or callout
+```
+
 > A quote or callout
 
 
 
 
 ## Code
-Inline `code` and code blocks:
-
-
-
+Inline `` `code` `` and code blocks:
 
 ```
 a code block
@@ -62,10 +85,9 @@ a code block
 
 
 ## Horizontal rule
-Three dashes on their own line produce a divider (web rendering) or a page break (PDF export):
+Three dashes on their own line produce a divider (web) or a page break (PDF export):
 
-
-
+`---`
 
 ---
 
@@ -73,10 +95,10 @@ Three dashes on their own line produce a divider (web rendering) or a page break
 
 
 ## Links and images
-[link text](https://example.com)
 
-
-
+| Syntax | Result |
+|---|---|
+| `[link text](https://example.com)` | [link text](https://example.com) |
 
 Images can be pasted or added with a right-click:
 
@@ -91,18 +113,16 @@ Images can be pasted or added with a right-click:
 ## Tables
 Insert with a right-click, or type manually:
 
-
-
+```
+| Column A | Column B | Column C |
+|----------|----------|----------|
+| cell     | cell     | cell     |
+```
 
 | Column A | Column B | Column C |
 |----------|----------|----------|
 | cell     | cell     | cell     |
 | cell     | cell     | cell     |
-| cell     | cell     | cell     |
-
-
-
-
 
 
 
@@ -110,6 +130,3 @@ Insert with a right-click, or type manually:
 ## Line break
 Add two trailing spaces at the end of a line to force a hard break  
 without starting a new paragraph.
-
-
-

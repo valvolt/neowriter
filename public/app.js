@@ -383,6 +383,14 @@
           if (src.startsWith('/->\\')) return { type: 'arrow-icon', raw: '/->\\' };
         },
         renderer() { return '➡️'; }
+      }, {
+        name: 'arrow-left-icon',
+        level: 'inline',
+        start(src) { return src.indexOf('/<-\\'); },
+        tokenizer(src) {
+          if (src.startsWith('/<-\\')) return { type: 'arrow-left-icon', raw: '/<-\\' };
+        },
+        renderer() { return '⬅️'; }
       }],
       renderer: {
         // Escape raw HTML blocks/inline so they display as text, not rendered HTML
@@ -877,6 +885,7 @@
           .replace(/\+\+([^+]+)\+\+/g, '$1') // underline
           .replace(/\/!\\/g, '⚠️')            // warn icon
           .replace(/\/->\\/g, '➡️')           // arrow icon
+          .replace(/\/<-\\/g, '⬅️')           // arrow left icon
           .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
           .replace(/^[-*+]\s+/, '') // list items
           .replace(/^\d+\.\s+/, ''); // numbered list
