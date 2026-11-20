@@ -600,26 +600,41 @@
 
   function keywordStyleFor(keyword) {
     const palette = [
-      { background: 'rgb(245, 245, 245)', color: 'rgb(51, 51, 51)' },
-      { background: 'rgb(238, 238, 238)', color: 'rgb(34, 34, 34)' },
-      { background: 'rgb(230, 243, 255)', color: 'rgb(20, 60, 110)' },
-      { background: 'rgb(214, 234, 248)', color: 'rgb(21, 67, 96)' },
-      { background: 'rgb(224, 247, 250)', color: 'rgb(0, 77, 102)' },
-      { background: 'rgb(232, 245, 233)', color: 'rgb(27, 94, 32)' },
-      { background: 'rgb(220, 237, 200)', color: 'rgb(51, 105, 30)' },
-      { background: 'rgb(224, 247, 250)', color: 'rgb(0, 96, 100)' },
-      { background: 'rgb(225, 245, 254)', color: 'rgb(1, 87, 155)' },
-      { background: 'rgb(243, 229, 245)', color: 'rgb(74, 20, 140)' },
-      { background: 'rgb(237, 231, 246)', color: 'rgb(69, 39, 160)' },
-      { background: 'rgb(255, 235, 238)', color: 'rgb(136, 14, 79)' },
-      { background: 'rgb(252, 228, 236)', color: 'rgb(173, 20, 87)' },
-      { background: 'rgb(255, 243, 224)', color: 'rgb(230, 81, 0)' },
-      { background: 'rgb(255, 249, 230)', color: 'rgb(204, 112, 0)' },
-      { background: 'rgb(255, 253, 231)', color: 'rgb(245, 127, 23)' },
-      { background: 'rgb(255, 248, 225)', color: 'rgb(245, 124, 0)' },
-      { background: 'rgb(239, 235, 233)', color: 'rgb(78, 52, 46)' },
-      { background: 'rgb(250, 244, 239)', color: 'rgb(93, 64, 55)' },
-      { background: 'rgb(236, 239, 241)', color: 'rgb(33, 33, 33)' }
+      // Blue
+      { background: 'rgb(219, 234, 254)', color: 'rgb(29,  78, 216)', fontWeight: 'normal', fontStyle: 'normal' },
+      { background: 'rgb(219, 234, 254)', color: 'rgb(29,  78, 216)', fontWeight: 'bold',   fontStyle: 'normal' },
+      { background: 'rgb(219, 234, 254)', color: 'rgb(67,  56, 202)', fontWeight: 'normal', fontStyle: 'italic' },
+      { background: 'rgb(219, 234, 254)', color: 'rgb(67,  56, 202)', fontWeight: 'bold',   fontStyle: 'italic' },
+      // Red
+      { background: 'rgb(254, 226, 226)', color: 'rgb(185, 28,  28)', fontWeight: 'normal', fontStyle: 'normal' },
+      { background: 'rgb(254, 226, 226)', color: 'rgb(185, 28,  28)', fontWeight: 'bold',   fontStyle: 'normal' },
+      { background: 'rgb(254, 226, 226)', color: 'rgb(159, 18,  57)', fontWeight: 'normal', fontStyle: 'italic' },
+      { background: 'rgb(254, 226, 226)', color: 'rgb(159, 18,  57)', fontWeight: 'bold',   fontStyle: 'italic' },
+      // Yellow
+      { background: 'rgb(254, 249, 195)', color: 'rgb(161, 98,   7)', fontWeight: 'normal', fontStyle: 'normal' },
+      { background: 'rgb(254, 249, 195)', color: 'rgb(161, 98,   7)', fontWeight: 'bold',   fontStyle: 'normal' },
+      { background: 'rgb(254, 249, 195)', color: 'rgb(133, 77,  14)', fontWeight: 'normal', fontStyle: 'italic' },
+      { background: 'rgb(254, 249, 195)', color: 'rgb(133, 77,  14)', fontWeight: 'bold',   fontStyle: 'italic' },
+      // Green
+      { background: 'rgb(209, 250, 229)', color: 'rgb(21, 128,  61)', fontWeight: 'normal', fontStyle: 'normal' },
+      { background: 'rgb(209, 250, 229)', color: 'rgb(21, 128,  61)', fontWeight: 'bold',   fontStyle: 'normal' },
+      { background: 'rgb(209, 250, 229)', color: 'rgb(6,   95,  70)', fontWeight: 'normal', fontStyle: 'italic' },
+      { background: 'rgb(209, 250, 229)', color: 'rgb(6,   95,  70)', fontWeight: 'bold',   fontStyle: 'italic' },
+      // Purple
+      { background: 'rgb(237, 233, 254)', color: 'rgb(109, 40, 217)', fontWeight: 'normal', fontStyle: 'normal' },
+      { background: 'rgb(237, 233, 254)', color: 'rgb(109, 40, 217)', fontWeight: 'bold',   fontStyle: 'normal' },
+      { background: 'rgb(237, 233, 254)', color: 'rgb(76,  29, 149)', fontWeight: 'normal', fontStyle: 'italic' },
+      { background: 'rgb(237, 233, 254)', color: 'rgb(76,  29, 149)', fontWeight: 'bold',   fontStyle: 'italic' },
+      // Orange
+      { background: 'rgb(255, 237, 213)', color: 'rgb(194, 65,  12)', fontWeight: 'normal', fontStyle: 'normal' },
+      { background: 'rgb(255, 237, 213)', color: 'rgb(194, 65,  12)', fontWeight: 'bold',   fontStyle: 'normal' },
+      { background: 'rgb(255, 237, 213)', color: 'rgb(217, 119,  6)', fontWeight: 'normal', fontStyle: 'italic' },
+      { background: 'rgb(255, 237, 213)', color: 'rgb(217, 119,  6)', fontWeight: 'bold',   fontStyle: 'italic' },
+      // Grey
+      { background: 'rgb(241, 245, 249)', color: 'rgb(71,  85, 105)', fontWeight: 'normal', fontStyle: 'normal' },
+      { background: 'rgb(241, 245, 249)', color: 'rgb(71,  85, 105)', fontWeight: 'bold',   fontStyle: 'normal' },
+      { background: 'rgb(241, 245, 249)', color: 'rgb(55,  65,  81)', fontWeight: 'normal', fontStyle: 'italic' },
+      { background: 'rgb(241, 245, 249)', color: 'rgb(55,  65,  81)', fontWeight: 'bold',   fontStyle: 'italic' },
     ];
     const key = (typeof keyword === 'string') ? keyword.toLowerCase() : String(keyword || '');
     const idx = hashStringToInt(key) % palette.length;
@@ -667,6 +682,8 @@
         const style = keywordStyleFor(match[1]);
         span.style.background = style.background;
         span.style.color = style.color;
+        span.style.fontWeight = style.fontWeight;
+        span.style.fontStyle = style.fontStyle;
         frag.appendChild(span);
         lastIndex = re.lastIndex;
       }
@@ -744,6 +761,8 @@
             const kwStyle = keywordStyleFor(firstKw);
             mark.style.background = kwStyle.background;
             mark.style.color = kwStyle.color;
+            mark.style.fontWeight = kwStyle.fontWeight;
+            mark.style.fontStyle = kwStyle.fontStyle;
           }
         }
         frag.appendChild(mark);
@@ -797,6 +816,8 @@
       const style = keywordStyleFor(kw);
       pill.style.background = style.background;
       pill.style.color = style.color;
+      pill.style.fontWeight = style.fontWeight;
+      pill.style.fontStyle = style.fontStyle;
       kws.appendChild(pill);
     }
   }
@@ -1844,6 +1865,8 @@
             const style = keywordStyleFor(kw);
             pill.style.background = style.background;
             pill.style.color = style.color;
+            pill.style.fontWeight = style.fontWeight;
+            pill.style.fontStyle = style.fontStyle;
             pill.style.cursor = 'pointer';
             pill.addEventListener('click', ev => {
               ev.stopPropagation();
@@ -1978,6 +2001,8 @@
       const style = keywordStyleFor(kw);
       pill.style.background = style.background;
       pill.style.color = style.color;
+      pill.style.fontWeight = style.fontWeight;
+      pill.style.fontStyle = style.fontStyle;
       tagsContainer.appendChild(pill);
     }
     li.appendChild(tagsContainer);
@@ -2188,6 +2213,8 @@
         const style = keywordStyleFor(kw);
         pill.style.background = style.background;
         pill.style.color = style.color;
+        pill.style.fontWeight = style.fontWeight;
+        pill.style.fontStyle = style.fontStyle;
         pill.addEventListener('click', (ev) => {
           ev.stopPropagation();
           highlightsBubbleKeyword = kw;
