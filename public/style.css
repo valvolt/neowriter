@@ -254,6 +254,7 @@ main{
 .tile-item.drag-over{border-color:var(--accent); background:#f0f4ff;}
 .tile-name{
   flex:1;
+  min-width:55px;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
