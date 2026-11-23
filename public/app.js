@@ -1249,6 +1249,7 @@
       const savedOverflow  = preview.style.overflow;
       const savedHeight    = preview.style.height;
       const savedPreviewW  = preview.style.width;
+      const savedPreviewBg = preview.style.backgroundColor;
 
       // Hide panels so the render-pane expands to fill the available viewport width,
       // giving wide tables (e.g. 6-column emoji reference) the most room before
@@ -1296,10 +1297,17 @@
       hrEls.forEach(hr => { hr.style.display = 'none'; });
       await new Promise(r => requestAnimationFrame(r));
 
+      const isDark  = document.body.classList.contains('dark');
+      const pageBg  = isDark ? '#232325' : '#ffffff'; // render-pane bg in dark, white in light
+
+      // Set preview background explicitly so html2canvas captures the correct colour.
+      // Without this, the preview is transparent and html2canvas may fall back to white.
+      preview.style.backgroundColor = pageBg;
+
       const pdfOpts = {
         margin: 10,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 1, useCORS: true },
+        html2canvas: { scale: 1, useCORS: true, backgroundColor: pageBg },
         pagebreak: { mode: [] },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
@@ -1396,10 +1404,20 @@
           const { start, end } = slices[i];
           const sliceH   = end - start;
           const sliceHMm = (sliceH / pxPageH) * IH_MM;
-          const sc       = document.createElement('canvas');
+          const sc  = document.createElement('canvas');
           sc.width  = canvas.width;
           sc.height = sliceH;
-          sc.getContext('2d').drawImage(canvas, 0, start, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+          const ctx = sc.getContext('2d');
+          // Fill canvas background so JPEG has no transparent → white fallback,
+          // and so the page margins / empty space below content match the theme.
+          ctx.fillStyle = pageBg;
+          ctx.fillRect(0, 0, sc.width, sc.height);
+          ctx.drawImage(canvas, 0, start, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+          if (isDark) {
+            // Fill PDF page background (margins + any empty space below the image).
+            pdf.setFillColor(35, 35, 37); // #232325
+            pdf.rect(0, 0, 210, 297, 'F');
+          }
           pdf.addImage(sc.toDataURL('image/jpeg', 0.98), 'JPEG', MARGIN_MM, MARGIN_MM, IW_MM, sliceHMm);
         }
         pdf.save(filename);
@@ -1420,9 +1438,10 @@
         if (editorPane) editorPane.style.display = savedEditor;
         if (menuEl)     menuEl.style.display     = savedMenu;
         handles.forEach(h => { h.style.display = ''; });
-        preview.style.overflow = savedOverflow;
-        preview.style.height   = savedHeight;
-        preview.style.width    = savedPreviewW;
+        preview.style.overflow        = savedOverflow;
+        preview.style.height          = savedHeight;
+        preview.style.width           = savedPreviewW;
+        preview.style.backgroundColor = savedPreviewBg;
       }
     });
   }
