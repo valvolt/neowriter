@@ -1248,18 +1248,26 @@
       const savedMenu      = menuEl     ? menuEl.style.display     : null;
       const savedOverflow  = preview.style.overflow;
       const savedHeight    = preview.style.height;
+      const savedPreviewW  = preview.style.width;
 
-      // Hide panels and cap render-pane to 900px. Capping prevents chrome's
-      // ~32,767px canvas height limit from being hit on long documents with
-      // many tall mermaid diagrams.
+      // Hide panels so the render-pane expands to fill the available viewport width,
+      // giving wide tables (e.g. 6-column emoji reference) the most room before
+      // html2pdf.js scales the render down to fit A4 (canvas.width = 719px at scale:1).
       if (editorPane) editorPane.style.display = 'none';
       if (menuEl)     menuEl.style.display     = 'none';
       handles.forEach(h => { h.style.display = 'none'; });
-      if (renderPane) { renderPane.style.width = '900px'; renderPane.style.maxWidth = '900px'; }
+      if (renderPane) { renderPane.style.width = ''; renderPane.style.maxWidth = ''; }
       preview.style.overflow = 'visible';
       preview.style.height   = 'auto';
 
-      // Two rAF ticks so the flex layout and SVGs reflow before capture
+      // Inject a temporary style to reduce table font size as a safeguard for
+      // any tables still wider than the content area after the width increase.
+      const pdfTableStyle = document.createElement('style');
+      pdfTableStyle.id = '__pdf-table-style__';
+      pdfTableStyle.textContent = '#preview table { font-size: 11px !important; }';
+      document.head.appendChild(pdfTableStyle);
+
+      // Two rAF ticks so the flex layout, table styles, and SVGs reflow before capture
       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
       // Stamp mermaid SVG pixel dimensions so html2canvas serialises them at
@@ -1275,21 +1283,18 @@
         return prev;
       });
 
-      // Record HR cut positions (container-relative Y of element after each HR),
-      // then hide the HRs. We do NOT add spacers — spacers bloat canvas height and
-      // trigger the canvas max-size error on long documents. Instead we do custom
-      // post-render slicing that snaps page cuts to HR positions.
+      // Record HR cut positions: collect next-sibling refs first, then hide ALL
+      // HRs at once and reflow. The cut positions themselves are computed AFTER the
+      // canvas is rendered, so the layout matches the canvas (both at the same width).
       const A4_INNER_RATIO = 277 / 190; // (297-20)mm / (210-20)mm
-      const previewRect = preview.getBoundingClientRect();
       const hrEls = Array.from(preview.querySelectorAll('hr'));
-      const hrCuts = [];
-      hrEls.forEach(hr => {
+      const hrNextEls = hrEls.map(hr => {
         let next = hr.nextElementSibling;
         if (!next && hr.parentElement !== preview) next = hr.parentElement.nextElementSibling;
-        if (next) hrCuts.push(Math.round(next.getBoundingClientRect().top - previewRect.top));
-        hr.style.display = 'none';
-      });
-      hrCuts.sort((a, b) => a - b);
+        return next;
+      }).filter(Boolean);
+      hrEls.forEach(hr => { hr.style.display = 'none'; });
+      await new Promise(r => requestAnimationFrame(r));
 
       const pdfOpts = {
         margin: 10,
@@ -1301,8 +1306,36 @@
 
       try {
         // Render the full document to a single canvas (natural height, no spacers).
+        // html2pdf internally constrains the render width to fit A4 (canvas.width ≈ 719px),
+        // so we must compute element positions AFTER the canvas is rendered, with the
+        // layout constrained to the same width, to avoid a DOM-vs-canvas mismatch.
         const canvas = await html2pdf().set(pdfOpts).from(preview)
           .toCanvas().then(function () { return this.prop.canvas; });
+
+        // After canvas rendering html2pdf has restored the preview to its original width.
+        // Set preview.style.width directly (not via the render pane, which doesn't reflow
+        // the preview due to overflow:visible) so text reflows at exactly canvas.width,
+        // then measure positions — now they exactly match the canvas coordinates.
+        preview.style.width = canvas.width + 'px';
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+        const previewRect = preview.getBoundingClientRect();
+        const hrCuts = hrNextEls
+          .map(el => Math.round(el.getBoundingClientRect().top - previewRect.top))
+          .filter(y => y > 0)
+          .sort((a, b) => a - b);
+
+        // Collect block element top positions so non-HR page cuts can be snapped
+        // to element boundaries, avoiding mid-sentence splits.
+        const blockTops = Array.from(preview.querySelectorAll(
+          'h1, h2, h3, h4, h5, h6, p, li, dt, dd, table, blockquote, pre, .mermaid'
+        )).map(el => Math.round(el.getBoundingClientRect().top - previewRect.top))
+          .filter(y => y > 0)
+          .sort((a, b) => a - b);
+
+        // Restore preview width now that positions are captured (slicing only uses the canvas).
+        preview.style.width = savedPreviewW;
+        if (renderPane) renderPane.style.width = savedRenderW || '';
 
         // Obtain the jsPDF constructor by rendering a throw-away 1px element.
         const dummyEl = document.createElement('div');
@@ -1320,14 +1353,39 @@
         const IW_MM     = 190; // inner width  (210 - 2×10)
         const IH_MM     = 277; // inner height (297 - 2×10)
 
+        const MIN_PAGE_FILL = 0.35; // skip HR/block-snap cuts that fill < 35% of a page
+
         const slices = [];
         let y = 0, hi = 0;
         while (y < canvas.height) {
           const naturalEnd = y + pxPageH;
+          // Advance past stale HR cuts (at or before current page start)
           while (hi < hrCuts.length && hrCuts[hi] <= y) hi++;
-          const end = (hi < hrCuts.length && hrCuts[hi] < naturalEnd)
-            ? hrCuts[hi++]
-            : Math.min(naturalEnd, canvas.height);
+
+          let end;
+          // Find the first HR cut within this page window that meets the minimum fill threshold.
+          // Skip short HR cuts rather than creating near-blank pages.
+          let usedHr = false;
+          for (let j = hi; j < hrCuts.length && hrCuts[j] < naturalEnd; j++) {
+            if (hrCuts[j] - y >= MIN_PAGE_FILL * pxPageH) {
+              end = hrCuts[j];
+              hi = j + 1;
+              usedHr = true;
+              break;
+            }
+          }
+
+          if (!usedHr) {
+            // Block snap: only snap to blocks at least MIN_PAGE_FILL from the page start,
+            // so we don't create near-blank pages by snapping to the very first element.
+            const nominal = Math.min(naturalEnd, canvas.height);
+            const minSnapY = y + Math.floor(MIN_PAGE_FILL * pxPageH);
+            let snap = nominal;
+            for (let k = blockTops.length - 1; k >= 0; k--) {
+              if (blockTops[k] >= minSnapY && blockTops[k] < nominal) { snap = blockTops[k]; break; }
+            }
+            end = snap;
+          }
           if (end > y) slices.push({ start: y, end });
           y = end;
         }
@@ -1347,6 +1405,8 @@
         pdf.save(filename);
 
       } finally {
+        // Remove temporary table font-size style
+        document.getElementById('__pdf-table-style__')?.remove();
         // Restore SVG dimensions
         mermaidSvgs.forEach((svg, i) => {
           const p = savedSvgDims[i];
@@ -1362,6 +1422,7 @@
         handles.forEach(h => { h.style.display = ''; });
         preview.style.overflow = savedOverflow;
         preview.style.height   = savedHeight;
+        preview.style.width    = savedPreviewW;
       }
     });
   }
