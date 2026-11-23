@@ -1311,7 +1311,6 @@
         const dummyPdf = await html2pdf().set(pdfOpts).from(dummyEl)
           .toPdf().then(function () { return this.prop.pdf; });
         document.body.removeChild(dummyEl);
-        const JsPDF = dummyPdf.constructor;
 
         // pxPageH: canvas pixels per A4 inner page (canvas.width × aspect ratio).
         // Each slice is at most pxPageH tall; HR cuts end a page early so the next
@@ -1333,7 +1332,7 @@
           y = end;
         }
 
-        const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+        const pdf = dummyPdf; // reuse html2pdf's own jsPDF instance — plugins (addImage, save) are on the instance, not the prototype
         for (let i = 0; i < slices.length; i++) {
           if (i > 0) pdf.addPage();
           const { start, end } = slices[i];
