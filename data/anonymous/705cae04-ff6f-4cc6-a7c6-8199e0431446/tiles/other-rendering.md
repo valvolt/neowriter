@@ -39,11 +39,11 @@ Shortcodes for inline attention symbols:
 
 `/!\` ⚠️ &nbsp; `/->\ ` ➡️ &nbsp; `/<-\ ` ⬅️
 
-/!\ Take note of this
+/!\ Take note of this issue
 
-/->\ Continue reading below
+/->\ Notice these coming words
 
-/<-\ Go back to the previous section
+/<-\ Notice these words on the left
 
 
 
